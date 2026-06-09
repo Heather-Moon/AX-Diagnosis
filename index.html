@@ -503,12 +503,30 @@
       localStorage.setItem('ax_result', JSON.stringify(payload));
 
       if (SHEETS_API_URL !== 'YOUR_APPS_SCRIPT_WEB_APP_URL') {
-        fetch(SHEETS_API_URL, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'text/plain' },
-          body: JSON.stringify(payload)
-        }).catch(err => console.warn('Sheets 저장 실패:', err));
+        const iframe = document.createElement('iframe');
+        iframe.name = '_sheets_target';
+        iframe.style.cssText = 'display:none;width:0;height:0;border:0';
+        document.body.appendChild(iframe);
+
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = SHEETS_API_URL;
+        form.target = '_sheets_target';
+        form.style.display = 'none';
+
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'payload';
+        input.value = JSON.stringify(payload);
+        form.appendChild(input);
+
+        document.body.appendChild(form);
+        form.submit();
+
+        setTimeout(() => {
+          if (document.body.contains(form))   document.body.removeChild(form);
+          if (document.body.contains(iframe)) document.body.removeChild(iframe);
+        }, 10000);
       }
 
       window.location.href = 'result.html';

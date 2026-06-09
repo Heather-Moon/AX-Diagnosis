@@ -32,7 +32,14 @@ const HEADERS = [
 // ── POST: 설문 응답 저장 ─────────────────────────────────────────────
 function doPost(e) {
   try {
-    const data = JSON.parse(e.postData.contents);
+    let data;
+    if (e.postData && e.postData.contents && e.postData.contents.trim().startsWith('{')) {
+      data = JSON.parse(e.postData.contents);
+    } else if (e.parameter && e.parameter.payload) {
+      data = JSON.parse(e.parameter.payload);
+    } else {
+      throw new Error('No valid data received');
+    }
     const ss = SpreadsheetApp.openById(SHEET_ID);
     const sheet = ss.getActiveSheet();
 
