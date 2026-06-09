@@ -48,8 +48,8 @@ function doPost(e) {
       data.team || '',
       data.jobType || '',
       data.tenure || '',
-      ...QUESTION_IDS.map(id => data.answers[id] ?? ''),
-      ...OPEN_IDS.map(id => data.openAnswers[id] ?? '')
+      ...QUESTION_IDS.map(id => (data.answers || {})[id] ?? ''),
+      ...OPEN_IDS.map(id => (data.openAnswers || {})[id] ?? '')
     ];
 
     sheet.appendRow(row);
