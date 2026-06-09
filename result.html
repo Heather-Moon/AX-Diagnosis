@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="css/style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/wordcloud@1.2.2/src/wordcloud2.js"></script>
+  <script src="js/config.js"></script>
   <script src="js/data.js"></script>
   <script src="js/sample_data.js"></script>
 </head>
@@ -1217,36 +1218,57 @@
     /* ──────────────────────────────────────────────────────────
        INIT
        ────────────────────────────────────────────────────────── */
-    (function init() {
-      // ax_results 없으면 샘플 데이터 주입 (ax_result 단수는 무시)
-      if (!localStorage.getItem('ax_results')) {
-        if (typeof SAMPLE_RESULTS !== 'undefined') {
-          localStorage.setItem('ax_results', JSON.stringify(SAMPLE_RESULTS));
+    (async function init() {
+      document.getElementById('app').innerHTML = `
+        <div class="loading-wrap">
+          <div class="loading-spinner"></div>
+          <p>결과를 불러오는 중...</p>
+        </div>
+      `;
+
+      const sheetsConfigured = typeof SHEETS_API_URL !== 'undefined' && SHEETS_API_URL !== 'YOUR_APPS_SCRIPT_WEB_APP_URL';
+      let sheetsResults = [];
+
+      // 1. Google Sheets에서 전체 응답 데이터 가져오기
+      if (sheetsConfigured) {
+        try {
+          const resp = await fetch(SHEETS_API_URL);
+          const json = await resp.json();
+          sheetsResults = (json.results || []).filter(r => r.answers && Object.keys(r.answers).length > 0);
+        } catch (e) {
+          console.warn('Sheets 로드 실패, 샘플 데이터로 대체:', e);
         }
       }
 
-      let results = JSON.parse(localStorage.getItem('ax_results') || 'null');
-      if (!results) {
-        const raw = localStorage.getItem('ax_result');
-        if (!raw) {
-          document.getElementById('app').innerHTML = `
-        <div class="error-wrap">
-          <p>저장된 진단 결과가 없습니다.</p>
-          <a href="index.html" class="btn btn-primary">진단 시작하기</a>
-        </div>
-      `;
-          return;
-        }
-        results = [JSON.parse(raw)];
+      // 2. 방금 제출한 응답이 아직 Sheets에 없으면 맨 앞에 추가
+      const currentResult = JSON.parse(localStorage.getItem('ax_result') || 'null');
+      if (currentResult && currentResult.answers) {
+        const inSheets = sheetsResults.some(r => r.timestamp === currentResult.timestamp);
+        if (!inSheets) sheetsResults = [currentResult, ...sheetsResults];
+      }
+
+      // 3. Sheets 데이터가 1개 이하면 샘플 데이터로 보충 (집계 뷰 유지)
+      let results = sheetsResults;
+      if (results.length <= 1 && typeof SAMPLE_RESULTS !== 'undefined') {
+        const existing = new Set(results.map(r => r.timestamp));
+        const supplement = SAMPLE_RESULTS.filter(s => !existing.has(s.timestamp));
+        results = [...results, ...supplement];
+      }
+
+      // 4. Sheets API 미설정 시 localStorage 또는 샘플 데이터 사용
+      if (results.length === 0) {
+        const local = JSON.parse(localStorage.getItem('ax_results') || 'null');
+        results = (local && local.length > 0) ? local
+          : (typeof SAMPLE_RESULTS !== 'undefined' ? SAMPLE_RESULTS : []);
       }
 
       if (results.length === 0) {
         document.getElementById('app').innerHTML = `
-      <div class="error-wrap">
-        <p>저장된 진단 결과가 없습니다.</p>
-        <a href="index.html" class="btn btn-primary">진단 시작하기</a>
-      </div>
-    `;
+          <div class="error-wrap">
+            <p>저장된 진단 결과가 없습니다.</p>
+            <a href="index.html" class="btn btn-primary">진단 시작하기</a>
+          </div>
+        `;
         return;
       }
 

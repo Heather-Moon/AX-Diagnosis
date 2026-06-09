@@ -24,6 +24,7 @@
 
   <main id="app"></main>
 
+  <script src="js/config.js"></script>
   <script src="js/data.js"></script>
   <script>
     /* ─── State ─────────────────────────────────────────────── */
@@ -34,8 +35,96 @@
       openAnswers: {},   // { 'OPEN-01': '...', 'OPEN-02': '...' }
       respondentName: '',
       team: '',
-      jobType: ''        // 'dev' | 'nondev'
+      jobType: '',       // 'dev' | 'nondev'
+      tenure: ''         // '1-3' | '3-5' | '5-7' | '7+'
     };
+
+    const TEAMS = {
+      nondev: ['재무회계', '인사', '마케팅', '기획', '영업', '구매/SCM', '법무/컴플라이언스', '경영지원', '기타'],
+      dev:    ['프론트엔드', '백엔드', 'DevOps/인프라', '데이터', 'AI/ML', 'QA/테스트', '모바일', '기타 개발']
+    };
+
+    let _currentOrgType = null;
+
+    function toggleOrgType(jobType) {
+      const wrap = document.getElementById('team-list-wrap');
+      const isOpen = wrap.style.display !== 'none';
+
+      // 같은 버튼 재클릭 → 닫기
+      if (_currentOrgType === jobType && isOpen) {
+        wrap.style.display = 'none';
+        _currentOrgType = null;
+        _updateOrgBtns(null);
+        return;
+      }
+
+      // 다른 타입으로 전환 → 상대방 버튼 선택 표시 초기화
+      const other = jobType === 'dev' ? 'nondev' : 'dev';
+      _resetBtnDisplay(other);
+
+      _currentOrgType = jobType;
+      _updateOrgBtns(jobType);
+      _renderTeamList(jobType);
+      wrap.style.display = '';
+      document.getElementById('team-error').style.display = 'none';
+    }
+
+    function _updateOrgBtns(active) {
+      ['nondev', 'dev'].forEach(t => {
+        document.getElementById('btn-' + t).classList.toggle('active', t === active);
+      });
+    }
+
+    function _resetBtnDisplay(jobType) {
+      const hint = document.getElementById('hint-' + jobType);
+      const sel  = document.getElementById('sel-'  + jobType);
+      if (hint) hint.style.display = '';
+      if (sel)  { sel.style.display = 'none'; sel.textContent = ''; }
+    }
+
+    function _closeTeamList(jobType, label) {
+      document.getElementById('team-list-wrap').style.display = 'none';
+      document.getElementById('hint-' + jobType).style.display = 'none';
+      const sel = document.getElementById('sel-' + jobType);
+      sel.textContent = '✓ ' + label;
+      sel.style.display = '';
+    }
+
+    function _renderTeamList(jobType) {
+      const list = document.getElementById('team-list');
+      document.getElementById('team-custom-wrap').style.display = 'none';
+      document.getElementById('team-custom-input').value = '';
+
+      list.innerHTML = TEAMS[jobType].map(t => `
+        <label class="team-opt-label">
+          <input type="radio" name="team-select" value="${t}"
+                 onchange="onTeamSelect('${t}', '${jobType}')">
+          <div class="team-opt-content">
+            <span class="team-opt-type ${jobType}">${jobType === 'dev' ? '개발' : '비개발'}</span>
+            <span class="team-opt-name">${t}</span>
+          </div>
+        </label>
+      `).join('');
+    }
+
+    function onTeamSelect(teamName, jobType) {
+      const isCustom = teamName === '기타' || teamName === '기타 개발';
+      if (isCustom) {
+        document.getElementById('team-custom-wrap').style.display = '';
+        document.getElementById('team-custom-input').focus();
+      } else {
+        document.getElementById('team-custom-wrap').style.display = 'none';
+        setTimeout(() => _closeTeamList(jobType, teamName), 180);
+      }
+      document.getElementById('team-error').style.display = 'none';
+    }
+
+    function confirmCustomTeam() {
+      const input = document.getElementById('team-custom-input');
+      const val = input.value.trim();
+      if (!val) { input.focus(); return; }
+      setTimeout(() => _closeTeamList(_currentOrgType, val), 180);
+    }
 
     const TOTAL_SCREENS = PARTS.length + 1; // parts + open
 
@@ -99,10 +188,6 @@
           <span class="info-icon">⏱️</span>
           <span class="info-text">약 <strong>15~20분</strong></span>
         </div>
-        <div class="start-info-item">
-          <span class="info-icon">🔒</span>
-          <span class="info-text">결과는 브라우저 내 처리</span>
-        </div>
       </div>
       <div class="start-notice">
         각 문항에서 현재 조직(또는 본인)의 <strong>실제 상황</strong>에 가장 가까운 항목을 선택하십시오.<br>
@@ -116,38 +201,43 @@
         </div>
       </div>
       <div class="start-team-wrap">
-        <label class="start-name-label">소속 팀 <span>(필수)</span></label>
-        <div class="team-selector">
-          <label class="team-opt-label">
-            <input type="radio" name="team-select" value="재무회계">
-            <div class="team-opt-content">
-              <span class="team-opt-type nondev">비개발</span>
-              <span class="team-opt-name">재무회계</span>
-            </div>
-          </label>
-          <label class="team-opt-label">
-            <input type="radio" name="team-select" value="인사">
-            <div class="team-opt-content">
-              <span class="team-opt-type nondev">비개발</span>
-              <span class="team-opt-name">인사</span>
-            </div>
-          </label>
-          <label class="team-opt-label">
-            <input type="radio" name="team-select" value="프론트엔드">
-            <div class="team-opt-content">
-              <span class="team-opt-type dev">개발</span>
-              <span class="team-opt-name">프론트엔드</span>
-            </div>
-          </label>
-          <label class="team-opt-label">
-            <input type="radio" name="team-select" value="백엔드">
-            <div class="team-opt-content">
-              <span class="team-opt-type dev">개발</span>
-              <span class="team-opt-name">백엔드</span>
-            </div>
-          </label>
+        <label class="start-name-label">소속 <span>(필수)</span></label>
+        <div class="org-type-row">
+          <button type="button" class="org-type-btn" id="btn-nondev" onclick="toggleOrgType('nondev')">
+            <span class="org-type-badge nondev">비개발</span>
+            <span class="org-type-hint" id="hint-nondev">재무회계 · 인사 · 마케팅 · 기획 등</span>
+            <span class="org-selected-team" id="sel-nondev" style="display:none"></span>
+          </button>
+          <button type="button" class="org-type-btn" id="btn-dev" onclick="toggleOrgType('dev')">
+            <span class="org-type-badge dev">개발</span>
+            <span class="org-type-hint" id="hint-dev">프론트엔드 · 백엔드 · DevOps · 데이터 등</span>
+            <span class="org-selected-team" id="sel-dev" style="display:none"></span>
+          </button>
         </div>
-        <div class="team-error" id="team-error" style="display:none">소속 팀을 선택해 주세요.</div>
+        <div id="team-list-wrap" style="display:none;margin-top:12px">
+          <div class="team-selector" id="team-list"></div>
+          <div id="team-custom-wrap" style="display:none;margin-top:8px">
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="text" id="team-custom-input" class="start-name-input"
+                     placeholder="소속 팀명을 직접 입력해 주세요" maxlength="30"
+                     onkeydown="if(event.key==='Enter')confirmCustomTeam()"
+                     style="margin:0">
+              <button type="button" class="btn btn-primary" onclick="confirmCustomTeam()"
+                      style="white-space:nowrap;padding:10px 20px;flex-shrink:0">확인</button>
+            </div>
+          </div>
+        </div>
+        <div class="team-error" id="team-error" style="display:none">소속을 선택해 주세요.</div>
+      </div>
+      <div class="start-name-wrap">
+        <label class="start-name-label">연차 <span>(필수)</span></label>
+        <div class="tenure-selector">
+          <label class="tenure-opt"><input type="radio" name="tenure" value="1-3"><span class="tenure-text">1~3년차</span></label>
+          <label class="tenure-opt"><input type="radio" name="tenure" value="3-5"><span class="tenure-text">3~5년차</span></label>
+          <label class="tenure-opt"><input type="radio" name="tenure" value="5-7"><span class="tenure-text">5~7년차</span></label>
+          <label class="tenure-opt"><input type="radio" name="tenure" value="7+"><span class="tenure-text">7년차 이상</span></label>
+        </div>
+        <div class="team-error" id="tenure-error" style="display:none">연차를 선택해 주세요.</div>
       </div>
       <div class="start-name-wrap">
         <label class="start-name-label" for="respondent-name">이름 <span>(선택)</span></label>
@@ -160,14 +250,34 @@
     }
 
     function startAssessment() {
-      const selected = document.querySelector('input[name="team-select"]:checked');
-      if (!selected) {
-        const err = document.getElementById('team-error');
-        if (err) err.style.display = 'block';
+      const teamSelected = document.querySelector('input[name="team-select"]:checked');
+      const tenureSelected = document.querySelector('input[name="tenure"]:checked');
+
+      if (!_currentOrgType || !teamSelected) {
+        document.getElementById('team-error').style.display = 'block';
         return;
       }
-      state.team = selected.value;
-      state.jobType = ['프론트엔드', '백엔드'].includes(state.team) ? 'dev' : 'nondev';
+
+      let teamName = teamSelected.value;
+      if (teamName === '기타' || teamName === '기타 개발') {
+        const custom = document.getElementById('team-custom-input').value.trim();
+        if (!custom) {
+          const err = document.getElementById('team-error');
+          err.textContent = '팀명을 직접 입력해 주세요.';
+          err.style.display = 'block';
+          return;
+        }
+        teamName = custom;
+      }
+
+      if (!tenureSelected) {
+        document.getElementById('tenure-error').style.display = 'block';
+        return;
+      }
+
+      state.jobType = _currentOrgType;
+      state.team = teamName;
+      state.tenure = tenureSelected.value;
       const nameInput = document.getElementById('respondent-name');
       state.respondentName = nameInput ? nameInput.value.trim() : '';
       state.partIdx = 0;
@@ -376,13 +486,12 @@
       window.scrollTo(0, 0);
     }
 
-    const SHEETS_API_URL = 'https://script.google.com/a/macros/codepresso.kr/s/AKfycby2gDwH45dZqACGEtVR7UcpbiSGVya901TjiukIvc--41jgtt2RERJEJeaEfX5reqopdA/exec';
-
     function submitAndRedirect() {
       const payload = {
         name: state.respondentName || '익명',
         team: state.team,
         jobType: state.jobType,
+        tenure: state.tenure,
         answers: state.answers,
         openAnswers: state.openAnswers,
         timestamp: Date.now()

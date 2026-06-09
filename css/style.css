@@ -110,9 +110,12 @@ body {
 }
 .start-info-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 12px;
   margin-bottom: 28px;
+  max-width: 420px;
+  margin-left: auto;
+  margin-right: auto;
 }
 .start-info-item {
   background: #f8fafc;
@@ -136,9 +139,9 @@ body {
   color: #78350f;
   line-height: 1.7;
   margin-bottom: 28px;
-  text-align: left;
+  text-align: center;
 }
-.start-parts { margin-bottom: 36px; text-align: left; }
+.start-parts { margin-bottom: 36px; text-align: center; }
 .parts-title {
   font-size: 12px;
   font-weight: 700;
@@ -146,7 +149,7 @@ body {
   letter-spacing: .5px;
   margin-bottom: 10px;
 }
-.parts-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.parts-list { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
 .part-chip {
   background: #f1f5f9;
   border: 1px solid #e2e8f0;
@@ -1000,6 +1003,7 @@ body {
   font-weight: 600;
   color: #475569;
   margin-bottom: 6px;
+  text-align: left;
 }
 .start-name-label span { font-weight: 400; color: #94a3b8; }
 .start-name-input {
@@ -1073,6 +1077,88 @@ body {
   font-size: 12px;
   color: #ef4444;
   font-weight: 500;
+}
+
+/* 직군 선택 (비개발/개발) */
+.org-type-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 8px;
+}
+.org-type-btn {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 12px;
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+  text-align: center;
+  font-family: inherit;
+}
+.org-type-btn:hover {
+  border-color: #93c5fd;
+  background: #f0f9ff;
+}
+.org-type-btn.active {
+  border-color: #1e40af;
+  background: #eff6ff;
+}
+.org-type-badge {
+  font-size: 15px;
+  font-weight: 700;
+  padding: 4px 16px;
+  border-radius: 20px;
+}
+.org-type-badge.nondev { background: #ecfdf5; color: #065f46; }
+.org-type-badge.dev    { background: #ede9fe; color: #6d28d9; }
+.org-type-hint {
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.5;
+}
+.org-selected-team {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e40af;
+}
+
+/* 연차 선택 */
+.tenure-selector {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-top: 8px;
+}
+@media (max-width: 480px) {
+  .tenure-selector { grid-template-columns: repeat(2, 1fr); }
+}
+.tenure-opt { cursor: pointer; }
+.tenure-opt input[type="radio"] { display: none; }
+.tenure-text {
+  display: block;
+  text-align: center;
+  padding: 11px 6px;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  transition: border-color .15s, background .15s, color .15s;
+}
+.tenure-opt input:checked + .tenure-text {
+  border-color: #1e40af;
+  background: #eff6ff;
+  color: #1e40af;
+}
+.tenure-opt:hover .tenure-text {
+  border-color: #93c5fd;
+  background: #f0f9ff;
 }
 
 /* ════════════════════════════════
