@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AX 조직역량 진단</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-inner">
+    <span class="logo-text">AX 조직역량 진단</span>
+    <div id="header-progress" class="header-progress" style="display:none">
+      <span id="progress-label" class="progress-label"></span>
+      <div class="progress-bar-wrap">
+        <div id="progress-fill" class="progress-fill"></div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main id="app"></main>
+
+<script src="js/data.js"></script>
+<script>
+/* ─── State ─────────────────────────────────────────────── */
+const state = {
+  screen: 'start',   // 'start' | 'part' | 'open' | 'done'
+  partIdx: 0,
+  answers: {},       // { qId: 1~5 }
+  openAnswers: {},   // { 'OPEN-01': '...', 'OPEN-02': '...' }
+  respondentName: '',
+  team: '',
+  jobType: ''        // 'dev' | 'nondev'
+};
+
+const TOTAL_SCREENS = PARTS.length + 1; // parts + open
+
+/* ─── Helpers ────────────────────────────────────────────── */
+function $(sel) { return document.querySelector(sel); }
+function el(tag, cls, html) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (html !== undefined) e.innerHTML = html;
+  return e;
+}
+
+function updateProgress() {
+  const wrap = $('#header-progress');
+  if (state.screen === 'start' || state.screen === 'done') {
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = 'flex';
+
+  let step, total;
+  if (state.screen === 'part') {
+    step = state.partIdx + 1;
+    total = TOTAL_SCREENS;
+  } else {
+    step = TOTAL_SCREENS;
+    total = TOTAL_SCREENS;
+  }
+
+  const pct = Math.round((step / total) * 100);
+  $('#progress-label').textContent = `${step} / ${total}`;
+  $('#progress-fill').style.width = pct + '%';
+}
+
+/* ─── Screens ────────────────────────────────────────────── */
+function renderStart() {
+  state.screen = 'start';
+  updateProgress();
+  const app = $('#app');
+  app.innerHTML = '';
+
+  const wrap = el('div', 'start-wrap');
+  wrap.innerHTML = `
+    <div class="start-card">
+      <div class="start-badge">AX Capability Assessment</div>
+      <h1 class="start-title">AX 조직역량 진단</h1>
+      <p class="start-desc">
+        본 진단은 귀 조직의 AI 전환(AX) 역량 수준을 파악하고,<br>
+        개선 방향과 다음 단계를 도출하기 위한 목적으로 설계되었습니다.
+      </p>
+      <div class="start-info-grid">
+        <div class="start-info-item">
+          <span class="info-icon">📋</span>
+          <span class="info-text">객관식 <strong>32문항</strong></span>
+        </div>
+        <div class="start-info-item">
+          <span class="info-icon">✍️</span>
+          <span class="info-text">주관식 <strong>2문항</strong></span>
+        </div>
+        <div class="start-info-item">
+          <span class="info-icon">⏱️</span>
+          <span class="info-text">약 <strong>15~20분</strong></span>
+        </div>
+        <div class="start-info-item">
+          <span class="info-icon">🔒</span>
+          <span class="info-text">결과는 브라우저 내 처리</span>
+        </div>
+      </div>
+      <div class="start-notice">
+        각 문항에서 현재 조직(또는 본인)의 <strong>실제 상황</strong>에 가장 가까운 항목을 선택하십시오.<br>
+        이상적인 모습이 아닌 <strong>현재 수준</strong>을 기준으로 응답해 주시기 바랍니다.
+      </div>
+      <div class="start-parts">
+        <div class="parts-title">진단 영역</div>
+        <div class="parts-list">
+          ${PARTS.map(p => `<div class="part-chip"><span class="chip-id">Part ${p.id}</span> ${p.title}</div>`).join('')}
+          <div class="part-chip"><span class="chip-id">Part G</span> 주관식 의견</div>
+        </div>
+      </div>
+      <div class="start-team-wrap">
+        <label class="start-name-label">소속 팀 <span>(필수)</span></label>
+        <div class="team-selector">
+          <label class="team-opt-label">
+            <input type="radio" name="team-select" value="재무회계">
+            <div class="team-opt-content">
+              <span class="team-opt-type nondev">비개발</span>
+              <span class="team-opt-name">재무회계</span>
+            </div>
+          </label>
+          <label class="team-opt-label">
+            <input type="radio" name="team-select" value="인사">
+            <div class="team-opt-content">
+              <span class="team-opt-type nondev">비개발</span>
+              <span class="team-opt-name">인사</span>
+            </div>
+          </label>
+          <label class="team-opt-label">
+            <input type="radio" name="team-select" value="프론트엔드">
+            <div class="team-opt-content">
+              <span class="team-opt-type dev">개발</span>
+              <span class="team-opt-name">프론트엔드</span>
+            </div>
+          </label>
+          <label class="team-opt-label">
+            <input type="radio" name="team-select" value="백엔드">
+            <div class="team-opt-content">
+              <span class="team-opt-type dev">개발</span>
+              <span class="team-opt-name">백엔드</span>
+            </div>
+          </label>
+        </div>
+        <div class="team-error" id="team-error" style="display:none">소속 팀을 선택해 주세요.</div>
+      </div>
+      <div class="start-name-wrap">
+        <label class="start-name-label" for="respondent-name">이름 <span>(선택)</span></label>
+        <input type="text" class="start-name-input" id="respondent-name" placeholder="응답자 이름을 입력하세요" maxlength="20">
+      </div>
+      <button class="btn btn-start-main" onclick="startAssessment()">진단 시작하기</button>
+    </div>
+  `;
+  app.appendChild(wrap);
+}
+
+function startAssessment() {
+  const selected = document.querySelector('input[name="team-select"]:checked');
+  if (!selected) {
+    const err = document.getElementById('team-error');
+    if (err) err.style.display = 'block';
+    return;
+  }
+  state.team = selected.value;
+  state.jobType = ['프론트엔드', '백엔드'].includes(state.team) ? 'dev' : 'nondev';
+  const nameInput = document.getElementById('respondent-name');
+  state.respondentName = nameInput ? nameInput.value.trim() : '';
+  state.partIdx = 0;
+  renderPart();
+}
+
+function renderPart() {
+  state.screen = 'part';
+  updateProgress();
+
+  const part = PARTS[state.partIdx];
+  const app = $('#app');
+  app.innerHTML = '';
+
+  const wrap = el('div', 'part-wrap');
+
+  // Part header
+  const header = el('div', 'part-header');
+  header.innerHTML = `
+    <div class="part-label">Part ${part.id}</div>
+    <h2 class="part-title">${part.title}</h2>
+    <p class="part-desc">${part.desc}</p>
+  `;
+  wrap.appendChild(header);
+
+  // Questions
+  const qList = el('div', 'q-list');
+  part.questions.forEach((q, qi) => {
+    const eff = (state.jobType === 'dev' && q.dev) ? { ...q, ...q.dev } : q;
+
+    const card = el('div', 'q-card');
+    card.setAttribute('data-qid', eff.id);
+
+    const qNum = el('div', 'q-num', `Q${qi + 1}`);
+    const qTitle = el('div', 'q-title', eff.title);
+
+    card.appendChild(qNum);
+    card.appendChild(qTitle);
+
+    if (eff.type === 'maturity') {
+      const qText = el('p', 'q-text', eff.q);
+      card.appendChild(qText);
+
+      const opts = el('div', 'opts');
+      eff.opts.forEach((opt, i) => {
+        const val = i + 1;
+        const label = el('label', 'opt');
+        const checked = state.answers[eff.id] === val ? 'checked' : '';
+        label.innerHTML = `
+          <input type="radio" name="${eff.id}" value="${val}" ${checked}>
+          <span class="opt-marker">${['①','②','③','④','⑤'][i]}</span>
+          <span class="opt-text">${opt}</span>
+        `;
+        label.querySelector('input').addEventListener('change', () => {
+          state.answers[eff.id] = val;
+          clearError(eff.id);
+        });
+        opts.appendChild(label);
+      });
+      card.appendChild(opts);
+
+    } else { // likert
+      const stmt = el('p', 'q-stmt', eff.stmt);
+      card.appendChild(stmt);
+
+      const likertWrap = el('div', 'likert-wrap');
+      const likertOpts = el('div', 'likert-opts');
+      LIKERT_LABELS.forEach((lbl, i) => {
+        const val = i + 1;
+        const col = el('div', 'likert-col');
+        const checked = state.answers[eff.id] === val ? 'checked' : '';
+        col.innerHTML = `
+          <input type="radio" id="${eff.id}-${val}" name="${eff.id}" value="${val}" ${checked}>
+          <label for="${eff.id}-${val}" class="likert-label">${lbl}</label>
+        `;
+        col.querySelector('input').addEventListener('change', () => {
+          state.answers[eff.id] = val;
+          clearError(eff.id);
+        });
+        likertOpts.appendChild(col);
+      });
+      likertWrap.appendChild(likertOpts);
+      card.appendChild(likertWrap);
+    }
+
+    const errMsg = el('div', 'err-msg', '');
+    errMsg.id = `err-${eff.id}`;
+    errMsg.style.display = 'none';
+    card.appendChild(errMsg);
+
+    qList.appendChild(card);
+  });
+  wrap.appendChild(qList);
+
+  // Navigation
+  const nav = el('div', 'nav-bar');
+  const leftBtn = el('button', 'btn btn-ghost', state.partIdx === 0 ? '처음으로' : '이전');
+  leftBtn.addEventListener('click', () => {
+    if (state.partIdx === 0) renderStart();
+    else { state.partIdx--; renderPart(); }
+  });
+
+  const isLast = state.partIdx === PARTS.length - 1;
+  const rightBtn = el('button', 'btn btn-primary', isLast ? '다음 (주관식)' : '다음');
+  rightBtn.addEventListener('click', () => {
+    if (!validatePart(part)) return;
+    if (isLast) renderOpen();
+    else { state.partIdx++; renderPart(); }
+  });
+
+  nav.appendChild(leftBtn);
+
+  const navRight = el('div', 'nav-right');
+  navRight.appendChild(rightBtn);
+  nav.appendChild(navRight);
+  wrap.appendChild(nav);
+
+  app.appendChild(wrap);
+  window.scrollTo(0, 0);
+}
+
+function validatePart(part) {
+  let valid = true;
+  part.questions.forEach(q => {
+    if (state.answers[q.id] === undefined) {
+      showError(q.id, '응답을 선택해 주세요.');
+      valid = false;
+    }
+  });
+  if (!valid) {
+    // Scroll to first unanswered
+    const firstErr = document.querySelector('.err-msg[style="display: block;"]') ||
+                     document.querySelector('.err-msg:not([style*="none"])');
+    if (firstErr) firstErr.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  return valid;
+}
+
+function showError(qid, msg) {
+  const el = document.getElementById(`err-${qid}`);
+  if (el) { el.textContent = msg; el.style.display = 'block'; }
+  const card = document.querySelector(`[data-qid="${qid}"]`);
+  if (card) card.classList.add('has-error');
+}
+
+function clearError(qid) {
+  const el = document.getElementById(`err-${qid}`);
+  if (el) { el.textContent = ''; el.style.display = 'none'; }
+  const card = document.querySelector(`[data-qid="${qid}"]`);
+  if (card) card.classList.remove('has-error');
+}
+
+function renderOpen() {
+  state.screen = 'open';
+  updateProgress();
+
+  const app = $('#app');
+  app.innerHTML = '';
+
+  const wrap = el('div', 'part-wrap');
+
+  const header = el('div', 'part-header');
+  header.innerHTML = `
+    <div class="part-label">Part G</div>
+    <h2 class="part-title">주관식 의견</h2>
+    <p class="part-desc">아래 질문에 자유롭게 응답해 주십시오. (선택 사항)</p>
+  `;
+  wrap.appendChild(header);
+
+  const qList = el('div', 'q-list');
+  OPEN_QUESTIONS.forEach((q, qi) => {
+    const card = el('div', 'open-card');
+    card.innerHTML = `
+      <div class="q-num">Q${qi + 1}</div>
+      <p class="q-text">${q.q}</p>
+      <textarea class="open-textarea" id="open-${q.id}" rows="5" placeholder="자유롭게 입력해 주세요.">${state.openAnswers[q.id] || ''}</textarea>
+    `;
+    qList.appendChild(card);
+  });
+  wrap.appendChild(qList);
+
+  // Nav
+  const nav = el('div', 'nav-bar');
+  const backBtn = el('button', 'btn btn-ghost', '이전');
+  backBtn.addEventListener('click', () => {
+    state.partIdx = PARTS.length - 1;
+    renderPart();
+  });
+
+  const submitBtn = el('button', 'btn btn-success', '결과 확인하기');
+  submitBtn.addEventListener('click', () => {
+    OPEN_QUESTIONS.forEach(q => {
+      const ta = document.getElementById(`open-${q.id}`);
+      state.openAnswers[q.id] = ta ? ta.value.trim() : '';
+    });
+    submitAndRedirect();
+  });
+
+  nav.appendChild(backBtn);
+  const navRight = el('div', 'nav-right');
+  navRight.appendChild(submitBtn);
+  nav.appendChild(navRight);
+  wrap.appendChild(nav);
+
+  app.appendChild(wrap);
+  window.scrollTo(0, 0);
+}
+
+function submitAndRedirect() {
+  const payload = {
+    name: state.respondentName || '익명',
+    team: state.team,
+    jobType: state.jobType,
+    answers: state.answers,
+    openAnswers: state.openAnswers,
+    timestamp: Date.now()
+  };
+  const existing = JSON.parse(localStorage.getItem('ax_results') || '[]');
+  existing.push(payload);
+  localStorage.setItem('ax_results', JSON.stringify(existing));
+  localStorage.setItem('ax_result', JSON.stringify(payload));
+  window.location.href = 'result.html';
+}
+
+/* ─── Init ───────────────────────────────────────────────── */
+renderStart();
+</script>
+</body>
+</html>

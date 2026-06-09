@@ -1,0 +1,1312 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AX 조직역량 진단 결과</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/wordcloud@1.2.2/src/wordcloud2.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/sample_data.js"></script>
+</head>
+
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <span class="logo-text">AX 조직역량 진단 결과</span>
+      <div class="header-actions">
+        <button class="btn btn-ghost no-print" onclick="retake()">다시 진단하기</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="app">
+    <div class="loading-wrap">
+      <div class="loading-spinner"></div>
+      <p>결과를 계산하는 중...</p>
+    </div>
+  </main>
+
+  <script>
+    /* ──────────────────────────────────────────────────────────
+       SCORING ENGINE
+       ────────────────────────────────────────────────────────── */
+
+    const CAT_QUESTIONS = {
+      STR: ['STR-P-01', 'STR-T-01', 'STR-O-01', 'STR-L-01', 'STR-O-02'],
+      PPL: ['PPL-O-01', 'PPL-O-02', 'PPL-T-01', 'PPL-T-02', 'PPL-P-01', 'PPL-P-02', 'PPL-L-01', 'PPL-L-02'],
+      GOV: ['GOV-O-01', 'GOV-O-02', 'GOV-P-01', 'GOV-T-01', 'GOV-O-03'],
+      ENG: ['ENG-P-01', 'ENG-T-01', 'ENG-O-01', 'ENG-O-02', 'ENG-P-02'],
+      DAT: ['DAT-P-01', 'DAT-O-01', 'DAT-O-02', 'DAT-T-01', 'DAT-O-03'],
+      CROSS: ['CROSS-L-01', 'CROSS-T-01', 'CROSS-P-01', 'CROSS-T-02']
+    };
+
+    const PERSP_QUESTIONS = {
+      P: ['STR-P-01', 'PPL-P-01', 'PPL-P-02', 'GOV-P-01', 'ENG-P-01', 'ENG-P-02', 'DAT-P-01', 'CROSS-P-01'],
+      T: ['STR-T-01', 'PPL-T-01', 'PPL-T-02', 'GOV-T-01', 'ENG-T-01', 'DAT-T-01', 'CROSS-T-01', 'CROSS-T-02'],
+      O: ['STR-O-01', 'STR-O-02', 'PPL-O-01', 'PPL-O-02', 'GOV-O-01', 'GOV-O-02', 'GOV-O-03', 'ENG-O-01', 'ENG-O-02', 'DAT-O-01', 'DAT-O-02', 'DAT-O-03'],
+      L: ['STR-L-01', 'PPL-L-01', 'PPL-L-02', 'CROSS-L-01']
+    };
+
+    const CAT_LABELS = {
+      STR: 'AX 전략', PPL: 'AX 인력·문화',
+      GOV: 'AX 거버넌스', ENG: 'AX 엔지니어링', DAT: 'AX 데이터'
+    };
+    const PERSP_LABELS = { P: '개인(P)', T: '팀(T)', O: '조직(O)', L: '리더십(L)' };
+
+    function avg(ids, answers) {
+      const vals = ids.map(id => answers[id]).filter(v => v !== undefined);
+      if (!vals.length) return 0;
+      return vals.reduce((a, b) => a + b, 0) / vals.length;
+    }
+
+    function scoreToLevel(s) {
+      if (s >= 4.5) return 5;
+      if (s >= 4.0) return 4;
+      if (s >= 3.0) return 3;
+      if (s >= 2.0) return 2;
+      return 1;
+    }
+
+    function compute(answers) {
+      // Category averages
+      const catScores = {};
+      Object.keys(CAT_QUESTIONS).forEach(cat => {
+        catScores[cat] = avg(CAT_QUESTIONS[cat], answers);
+      });
+
+      // Perspective averages
+      const perspScores = {};
+      Object.keys(PERSP_QUESTIONS).forEach(p => {
+        perspScores[p] = avg(PERSP_QUESTIONS[p], answers);
+      });
+
+      // Main 5 cats only (exclude CROSS)
+      const mainCats = ['STR', 'PPL', 'GOV', 'ENG', 'DAT'];
+      const overall = mainCats.reduce((s, c) => s + catScores[c], 0) / mainCats.length;
+
+      // Levels
+      const catLevels = {};
+      mainCats.forEach(c => { catLevels[c] = scoreToLevel(catScores[c]); });
+      const orgLevel = Math.min(...mainCats.map(c => catLevels[c]));
+
+      // Gap analysis — categories
+      const mainCatVals = mainCats.map(c => catScores[c]);
+      const catMax = Math.max(...mainCatVals);
+      const catMin = Math.min(...mainCatVals);
+      const catGap = catMax - catMin;
+      const catGapStatus = catGap >= 1.5 ? 'critical' : catGap >= 1.0 ? 'warning' : 'ok';
+
+      // Weakest / strongest cat
+      const weakestCat = mainCats.reduce((a, b) => catScores[a] < catScores[b] ? a : b);
+      const strongestCat = mainCats.reduce((a, b) => catScores[a] > catScores[b] ? a : b);
+
+      // Gap analysis — perspectives
+      const perspVals = Object.values(perspScores);
+      const perspMax = Math.max(...perspVals);
+      const perspMin = Math.min(...perspVals);
+      const perspGap = perspMax - perspMin;
+      const perspGapStatus = perspGap >= 1.0 ? 'warning' : 'ok';
+
+      const weakestPersp = Object.keys(perspScores).reduce((a, b) => perspScores[a] < perspScores[b] ? a : b);
+      const strongestPersp = Object.keys(perspScores).reduce((a, b) => perspScores[a] > perspScores[b] ? a : b);
+
+      return {
+        catScores, catLevels, catGap, catGapStatus, weakestCat, strongestCat,
+        perspScores, perspGap, perspGapStatus, weakestPersp, strongestPersp,
+        overall, orgLevel
+      };
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       RENDER
+       ────────────────────────────────────────────────────────── */
+
+    function fmt(n) { return n.toFixed(2); }
+
+    function lvBadge(lv) {
+      const info = LEVEL_INFO[lv];
+      return `<span class="lv-badge" style="background:${info.bg};color:${info.text};border-color:${info.color}">Lv${lv} ${info.name}</span>`;
+    }
+
+    function retake() { window.location.href = 'index.html'; }
+
+    function resetToSample() {
+      if (typeof SAMPLE_RESULTS === 'undefined') return;
+      localStorage.removeItem('ax_result');
+      localStorage.setItem('ax_results', JSON.stringify(SAMPLE_RESULTS));
+      location.reload();
+    }
+
+    function render(data, openAnswers, meta) {
+      const r = compute(data);
+      const info = LEVEL_INFO[r.orgLevel];
+
+      const app = document.getElementById('app');
+      app.innerHTML = '';
+
+      /* ── Hero ── */
+      const hero = document.createElement('div');
+      hero.className = `result-hero hero-lv${r.orgLevel}`;
+      const metaHTML = (meta && (meta.name || meta.team)) ? `
+        <div class="hero-meta">
+          ${meta.name ? `<span class="hero-respondent">${meta.name}</span>` : ''}
+          ${meta.team ? `<span class="hero-team-badge">${meta.team}</span>` : ''}
+          ${meta.jobType ? `<span class="hero-job-badge ${meta.jobType}">${meta.jobType === 'dev' ? '개발' : '비개발'}</span>` : ''}
+        </div>` : '';
+      hero.innerHTML = `
+        <div class="hero-inner">
+          ${metaHTML}
+          <div class="hero-level-block">
+            <div class="hero-level">Lv${r.orgLevel}</div>
+            <div class="hero-name">${info.name}</div>
+          </div>
+          <div class="hero-right">
+            <div class="hero-label">종합 AX 성숙도 수준</div>
+            <div class="hero-score">${fmt(r.overall)}<span> / 5.00</span></div>
+          </div>
+        </div>
+      `;
+      app.appendChild(hero);
+
+      const wrap = document.createElement('div');
+      wrap.className = 'sections-wrap';
+      app.appendChild(wrap);
+      const S = (content) => { wrap.appendChild(content); }; // helper
+
+      /* ── Maturity Stage Track ── */
+      const stageSec = document.createElement('div');
+      stageSec.className = 'r-section';
+      stageSec.innerHTML = buildStageHTML(r.orgLevel);
+      S(stageSec);
+
+      /* ── Radar + Category Combined ── */
+      const catSec = document.createElement('div');
+      catSec.className = 'r-section';
+      const catRows = ['STR','PPL','GOV','ENG','DAT'].map(cat => {
+        const lv = r.catLevels[cat];
+        const sc = r.catScores[cat];
+        const lvInfo = LEVEL_INFO[lv];
+        return `
+          <div class="cat-row" style="border-left-color:${lvInfo.color}">
+            <div class="cat-row-header">
+              <div class="cat-row-info">
+                <span class="cat-row-name">${CAT_LABELS[cat]}</span>
+                <span class="cat-row-desc">${CAT_DESCS[cat]}</span>
+              </div>
+              <div class="cat-row-right">
+                <span class="cat-row-score" style="color:${lvInfo.text}">${fmt(sc)}</span>
+                ${lvBadge(lv)}
+              </div>
+            </div>
+            <div class="cat-bar-wrap" style="margin:6px 0 4px">
+              <div class="cat-bar" style="width:${(sc/5)*100}%;background:${lvInfo.color}"></div>
+            </div>
+            <div class="cat-row-insight">${CAT_LEVEL_MSGS[cat][lv]}</div>
+          </div>
+        `;
+      }).join('');
+      catSec.innerHTML = `
+        <h2 class="section-title">5대 역량 영역별 분석</h2>
+        <div class="cat-combined">
+          <div class="cat-radar-panel">
+            <canvas id="radarChart"></canvas>
+          </div>
+          <div class="cat-list-panel">${catRows}</div>
+        </div>
+      `;
+      S(catSec);
+
+      /* ── Perspective Rows ── */
+      const perspSec = document.createElement('div');
+      perspSec.className = 'r-section';
+      const perspRows = ['P','T','O','L'].map(p => {
+        const sc = r.perspScores[p];
+        const lv = scoreToLevel(sc);
+        const lvInfo = LEVEL_INFO[lv];
+        const [short, ...rest] = PERSP_LABELS[p].split('(');
+        return `
+          <div class="persp-row" style="border-left-color:${lvInfo.color}">
+            <div class="persp-row-header">
+              <div class="persp-row-info">
+                <span class="persp-row-name">${PERSP_LABELS[p]}</span>
+                <span class="persp-row-desc">${PERSP_DESCS[p]}</span>
+              </div>
+              <div class="persp-row-right">
+                <span class="persp-row-score" style="color:${lvInfo.text}">${fmt(sc)}</span>
+                ${lvBadge(lv)}
+              </div>
+            </div>
+            <div class="cat-bar-wrap" style="margin:6px 0 4px">
+              <div class="cat-bar" style="width:${(sc/5)*100}%;background:${lvInfo.color}"></div>
+            </div>
+            <div class="persp-row-insight">${PERSP_LEVEL_MSGS[p][lv]}</div>
+          </div>
+        `;
+      }).join('');
+      perspSec.innerHTML = `
+        <h2 class="section-title">관점별 역량 분포</h2>
+        <div class="persp-list">${perspRows}</div>
+      `;
+      S(perspSec);
+
+      /* ── CROSS 협업·소통 지수 ── */
+      const crossSec = document.createElement('div');
+      crossSec.className = 'r-section';
+      const crossSc = r.catScores['CROSS'];
+      const crossLv = scoreToLevel(crossSc);
+      const crossInfo = LEVEL_INFO[crossLv];
+      crossSec.innerHTML = `
+    <h2 class="section-title">협업·소통 지수 (CROSS)</h2>
+    <div class="cross-row">
+      <div class="cross-score-wrap">
+        <div class="cross-score" style="color:${crossInfo.text}">${fmt(crossSc)}</div>
+        <div class="cross-max">/ 5.00</div>
+      </div>
+      <div class="cross-detail">
+        ${lvBadge(crossLv)}
+        <p class="cross-desc">조직 내 AI 관련 협업·소통·심리적 안전감 지수입니다. 본 점수는 5대 영역 종합 성숙도에 포함되지 않으며 별도 참고 지표로 활용됩니다.</p>
+      </div>
+    </div>
+  `;
+      S(crossSec);
+
+
+      /* ── Open Answers ── */
+      if (openAnswers && (openAnswers['OPEN-01'] || openAnswers['OPEN-02'])) {
+        const openSec = document.createElement('div');
+        openSec.className = 'r-section';
+        openSec.innerHTML = `<h2 class="section-title">주관식 응답</h2>`;
+        OPEN_QUESTIONS.forEach(q => {
+          const ans = openAnswers[q.id];
+          if (!ans) return;
+          const block = document.createElement('div');
+          block.className = 'open-result-block';
+          block.innerHTML = `
+        <p class="open-result-q">${q.q}</p>
+        <p class="open-result-a">${ans.replace(/\n/g, '<br>')}</p>
+      `;
+          openSec.appendChild(block);
+        });
+        S(openSec);
+      }
+
+      /* ── Draw Radar ── */
+      drawRadar(r);
+    }
+
+    function drawRadar(r) {
+      const ctx = document.getElementById('radarChart').getContext('2d');
+      const labels = ['AX 전략', 'AX 인력·문화', 'AX 거버넌스', 'AX 엔지니어링', 'AX 데이터'];
+      const vals = ['STR', 'PPL', 'GOV', 'ENG', 'DAT'].map(c => r.catScores[c]);
+
+      new Chart(ctx, {
+        type: 'radar',
+        data: {
+          labels,
+          datasets: [{
+            label: '현재 수준',
+            data: vals,
+            backgroundColor: 'rgba(59,130,246,0.15)',
+            borderColor: '#3b82f6',
+            borderWidth: 2,
+            pointBackgroundColor: '#3b82f6',
+            pointRadius: 5
+          }]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            r: {
+              min: 0, max: 5,
+              ticks: { stepSize: 1, font: { size: 11 } },
+              pointLabels: { font: { size: 13, weight: '600' } },
+              grid: { color: '#e2e8f0' },
+              angleLines: { color: '#cbd5e1' }
+            }
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: ctx => ` ${ctx.parsed.r.toFixed(2)} / 5.00`
+              }
+            }
+          }
+        }
+      });
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       TEXT HELPERS
+       ────────────────────────────────────────────────────────── */
+    function levelDesc(lv) {
+      const descs = {
+        1: 'AI 전환이 아직 시작 단계입니다. 개별 시도는 있으나 조직적 체계나 공식 전략이 부재한 상태입니다.',
+        2: 'AI 필요성 인식은 형성되었으나, 실행과 체계화가 여전히 부분적입니다. 구조화된 전환 계획 수립이 필요합니다.',
+        3: '주요 영역에서 공식적인 AI 도입 체계가 갖추어지기 시작했습니다. 일관된 실행과 확산이 다음 과제입니다.',
+        4: 'AI 전환이 조직 전반에 확산되고 있으며, 성과 지표 기반의 운영이 정착되고 있습니다.',
+        5: 'AI가 조직의 핵심 운영 방식으로 완전히 내재화되어 지속적인 혁신과 가치 창출이 이루어지고 있습니다.'
+      };
+      return descs[lv] || '';
+    }
+
+    function buildStageHTML(currentLv) {
+      const trackDots = [1,2,3,4,5].map(lv => {
+        const info = LEVEL_INFO[lv];
+        const isCurrent = lv === currentLv;
+        const isPast = lv < currentLv;
+        return `
+          <div class="stage-step ${isCurrent ? 'current' : isPast ? 'past' : 'future'}">
+            <div class="stage-dot" style="border-color:${info.color};background:${isCurrent || isPast ? info.color : '#fff'}">
+              ${isCurrent ? `<span class="stage-dot-inner">▶</span>` : isPast ? `<span class="stage-dot-inner">✓</span>` : ''}
+            </div>
+            <div class="stage-lv" style="color:${isCurrent ? info.text : isPast ? info.text : '#94a3b8'}">Lv${lv}</div>
+            <div class="stage-name" style="color:${isCurrent ? info.text : isPast ? info.text : '#94a3b8'}">${info.name}</div>
+          </div>
+        `;
+      }).join('<div class="stage-connector"></div>');
+
+      const cur = LEVEL_INFO[currentLv];
+      const next = currentLv < 5 ? LEVEL_INFO[currentLv + 1] : null;
+      const axmosColor = cur.axmos === 'AX Build' ? '#f97316' : '#3b82f6';
+
+      const focusItems = cur.focus.map(f =>
+        `<li class="stage-focus-item"><span class="stage-focus-dot" style="background:${cur.color}"></span>${f}</li>`
+      ).join('');
+
+      const nextHTML = next ? `
+        <div class="stage-next">
+          <div class="stage-next-label">다음 단계로 가기 위한 목표</div>
+          <div class="stage-next-name" style="color:${next.color}">Lv${currentLv+1} ${next.name}</div>
+          <div class="stage-next-desc">${next.desc}</div>
+        </div>` : `
+        <div class="stage-next stage-next-top">
+          <div class="stage-next-label">최고 성숙도 단계 달성</div>
+          <div class="stage-next-desc">AI가 조직 전략·운영·문화 전반에 완전히 내재화된 상태입니다. 외부 생태계 리더십과 지속적 혁신에 집중하십시오.</div>
+        </div>`;
+
+      return `
+        <h2 class="section-title">AX 성숙도 단계</h2>
+        <div class="stage-track">${trackDots}</div>
+        <div class="stage-current-card" style="border-left-color:${cur.color}">
+          <div class="stage-current-header">
+            <div>
+              <div class="stage-current-lv" style="color:${cur.color}">현재 단계 · Lv${currentLv} ${cur.name}</div>
+              <div class="stage-current-desc">${cur.desc}</div>
+            </div>
+            <div class="stage-axmos-badge" style="background:${axmosColor}20;color:${axmosColor};border-color:${axmosColor}">
+              ${cur.axmos}<br><span>${cur.axmosPhase}</span>
+            </div>
+          </div>
+          <div class="stage-focus-title">핵심 개선 과제</div>
+          <ul class="stage-focus-list">${focusItems}</ul>
+        </div>
+        ${nextHTML}
+      `;
+    }
+
+
+    /* ──────────────────────────────────────────────────────────
+       WORD CLOUD
+       ────────────────────────────────────────────────────────── */
+    const WC_STOPWORDS = new Set([
+      // 기능어·조사·접속어
+      '이', '가', '을', '를', '은', '는', '의', '에', '에서', '로', '으로', '와', '과', '도', '만',
+      '것', '수', '등', '및', '즉', '또', '더', '이런', '이와', '이를', '이에', '이후', '이전', '현재',
+      '위해', '위한', '대한', '통해', '통한', '관련', '경우', '그리고', '하지만', '또한', '또는',
+      '때문', '인해', '인한', '대해', '대하여', '아니라', '아닌', '필요', '상황', '방법', '과정', '기준',
+      // 순수 서술어형 (단독 어절로 등장하는 경우)
+      '있습니다','없습니다','합니다','됩니다','입니다','이다','있다','없다','한다','된다',
+      '했습니다','됐습니다','됩니다','하였습니다','있었습니다','없었습니다',
+      '있어요','없어요','해요','돼요','이에요','예요',
+      '같습니다','같다','같아요','봅니다','봐요','드립니다',
+      '않습니다','못합니다','어렵습니다','힘듭니다',
+      // 장벽·한계 설문에서 의미 없는 긍정·중립 어휘
+      '성공', '향상', '개선', '발전', '도움', '편리', '유용', '효과', '효율', '긍정',
+      '우수', '훌륭', '완벽', '최고', '뛰어', '좋은', '좋아', '좋고', '잘',
+      '도입', '활용', '사용', '운영', '개발', '구축', '적용', '지원', '분석', '평가',
+      '시스템', '데이터', '모델', '전략', '조직', '부서', '직원', '관리', '체계',
+    ]);
+
+    // 장벽·한계·문제 핵심어 가중치 (2.5배 부스트)
+    const WC_BARRIER_BOOST = new Set([
+      // 문제 상황
+      '어려움', '한계', '장벽', '제약', '문제', '불편', '부재', '미흡', '부족', '취약',
+      '오류', '실패', '지연', '중단', '보류', '포기',
+      // 감정·반응
+      '저항', '불안', '우려', '두려움', '불신', '반발', '거부', '기피',
+      // 비용·자원
+      '비용', '예산', '부담', '낭비', '초과',
+      // 조직·문화 장벽
+      '사일로', '갈등', '혼란', '격차', '편향', '불일치',
+      // 기술·시스템
+      '보안', '정책', '규정', '제한', '금지', '컴플라이언스', '레거시', '호환',
+      // 역량
+      '역량', '부족', '교육', '이해', '미숙',
+    ]);
+
+    // 한국어 어미·조사 제거 → 명사형 추출
+    function koreanNounify(w) {
+      const endings = [
+        '하였습니다','했습니다','됐습니다','있습니다','없습니다','합니다','됩니다',
+        '하였으며','하였고','했으며','했으나','됐으며',
+        '하고','하는','하여','하며','하면','하기','하지','하다','한다',
+        '되고','되는','되어','되며','되면','된다','됐고',
+        '이다','이며','이나','이고','이면','이라',
+        '적인','적으로','적이',
+        '들이','들을','들은','들의','들도','들로','들만','들',
+        '에서','에게','에도','에는','에만',
+        '으로서','로서','으로',
+        '이라는','라는','이라고','라고',
+        '보다','처럼','까지','부터','만큼',
+      ];
+      for (const e of endings) {
+        if (w.endsWith(e) && w.length - e.length >= 2) {
+          return w.slice(0, w.length - e.length);
+        }
+      }
+      if (w.length > 2) {
+        for (const p of ['을','를','이','가','은','는','의','와','과','도','만','로','에']) {
+          if (w.endsWith(p)) return w.slice(0, -1);
+        }
+      }
+      return w;
+    }
+
+    function buildWordFreq(texts) {
+      const freq = {};
+      texts.forEach(text => {
+        if (!text) return;
+        text.split(/[\s,·.·。、!?！？\n]+/).forEach(w => {
+          const cleaned = w.replace(/[^가-힣a-zA-Z0-9]/g, '').trim();
+          if (cleaned.length < 2) return;
+          const word = koreanNounify(cleaned);
+          if (word.length < 2) return;
+          if (WC_STOPWORDS.has(word)) return;
+          // 잔여 서술어 패턴 제거
+          if (/[습니다|ㅂ니다|어요|아요|이에요|예요]$/.test(word)) return;
+          if (/다$/.test(word) && word.length <= 4) return;
+          const boost = WC_BARRIER_BOOST.has(word) ? 2.5 : 1;
+          freq[word] = (freq[word] || 0) + boost;
+        });
+      });
+      return Object.entries(freq)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 50);
+    }
+
+    function renderWordCloud(canvasId, texts) {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas || !window.WordCloud) return;
+      const list = buildWordFreq(texts);
+      if (!list.length) return;
+
+      const dpr  = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      const cssW = rect.width  || canvas.offsetWidth  || 480;
+      const cssH = rect.height || canvas.offsetHeight || 320;
+      canvas.width  = cssW * dpr;
+      canvas.height = cssH * dpr;
+
+      const maxFreq = list[0][1];
+      const minFreq = list[list.length - 1][1];
+      const range   = maxFreq - minFreq || 1;
+
+      // 제곱근 스케일 — 상위 단어를 압도적으로 크게
+      const toSize = freq =>
+        Math.round(14 + Math.pow((freq - minFreq) / range, 0.45) * 54);
+
+      // 장벽 핵심어 여부 빠른 조회용 Set
+      const boostedWords = new Set(list.slice(0, 50)
+        .filter(([w]) => WC_BARRIER_BOOST.has(w))
+        .map(([w]) => w));
+
+      // 빈도 4단계 색상 — 장벽어: 적/주황, 일반어: 청/회
+      const toColor = (word, size) => {
+        if (boostedWords.has(word)) {
+          if (size >= 50) return '#991b1b';   // 짙은 빨강
+          if (size >= 34) return '#dc2626';   // 빨강
+          if (size >= 22) return '#f97316';   // 주황
+          return '#fbbf24';                   // 노란 주황
+        }
+        if (size >= 50) return '#1e3a8a';
+        if (size >= 34) return '#1d4ed8';
+        if (size >= 22) return '#60a5fa';
+        return '#93c5fd';
+      };
+
+      const wcList = list.slice(0, 50).map(([word, freq]) => [word, toSize(freq)]);
+
+      WordCloud(canvas, {
+        list: wcList,
+        gridSize: Math.round(cssW / 28),
+        weightFactor: dpr,
+        fontFamily: 'Noto Sans KR, sans-serif',
+        fontWeight: '700',
+        color: (word, size) => toColor(word, size),
+        rotateRatio: 0.1,
+        backgroundColor: '#ffffff',
+        drawOutOfBound: false,
+        shrinkToFit: true,
+        minSize: 10,
+      });
+    }
+
+    function renderWordClouds(container, results) {
+      const open01 = results.map(r => r.openAnswers && r.openAnswers['OPEN-01']).filter(Boolean);
+      const open02 = results.map(r => r.openAnswers && r.openAnswers['OPEN-02']).filter(Boolean);
+      if (!open01.length && !open02.length) return;
+
+      // ── 워드클라우드 섹션 ──
+      const wcSec = document.createElement('div');
+      wcSec.className = 'r-section';
+      wcSec.innerHTML = `
+    <h2 class="section-title">주관식 응답 워드클라우드</h2>
+    <div class="wc-grid">
+      ${open01.length ? `<div class="wc-item">
+        <div class="wc-label">Q1 — AI 도입 불편·한계 사례</div>
+        <canvas id="wc-canvas-01" class="wc-canvas"></canvas>
+      </div>` : ''}
+      ${open02.length ? `<div class="wc-item">
+        <div class="wc-label">Q2 — 제도·문화 장벽</div>
+        <canvas id="wc-canvas-02" class="wc-canvas"></canvas>
+      </div>` : ''}
+    </div>
+  `;
+      container.appendChild(wcSec);
+
+      requestAnimationFrame(() => {
+        if (open01.length) renderWordCloud('wc-canvas-01', open01);
+        if (open02.length) renderWordCloud('wc-canvas-02', open02);
+      });
+
+      // ── AI 요약 섹션 ──
+      const sumSec = document.createElement('div');
+      sumSec.className = 'r-section';
+      sumSec.innerHTML = buildOpenSummaryHTML(open01, open02, results.length);
+      container.appendChild(sumSec);
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       OPEN ANSWER AI SUMMARY
+       ────────────────────────────────────────────────────────── */
+    const THEMES_Q1 = [
+      { label: '데이터·인프라 부족', words: ['데이터', '레이블링', '정제', '품질', '통합', 'ERP', '인프라', 'MLOps', '사일로', '축적'] },
+      { label: '보안·정책 제약', words: ['보안', '정책', '개인정보', '법무', '규정', '컴플라이언스', '금지', '제한', '저작권'] },
+      { label: '비용·ROI 불명확', words: ['비용', '예산', '라이선스', 'ROI', 'FinOps', '초과', '측정', '효과'] },
+      { label: '시스템 연동 장벽', words: ['시스템', 'API', '레거시', '연동', '배포', '환경', '호환'] },
+      { label: '품질·신뢰성 문제', words: ['정확도', '신뢰', '오류', '편향', '품질', '한국어', '톤앤매너', '불일치', '낮'] },
+      { label: '역량·교육 부재', words: ['역량', '교육', '기초', '학습', '격차', '익히', '이해'] },
+    ];
+    const THEMES_Q2 = [
+      { label: '변화 저항·심리적 불안', words: ['저항', '불안', '불안감', '대체', '일자리', '꺼', '두려', '반발', '심리'] },
+      { label: 'KPI·성과 측정 부재', words: ['KPI', '성과', '측정', '평가', '기준', '지표', '판단'] },
+      { label: '리더십·중간관리자 부족', words: ['리더', '리더십', '경영진', '관리자', '중간', '지지', '이해도'] },
+      { label: '부서 간 사일로·협업', words: ['사일로', '협업', '공유', '부서', '격차', '소통', '통합'] },
+      { label: '교육·역량 제도 미비', words: ['교육', '역량', '인재', '인증', '채용', '육성', '학습'] },
+      { label: '거버넌스·윤리 부재', words: ['거버넌스', '윤리', '책임', '기준', '가이드', '정책', '규정'] },
+    ];
+
+    function matchThemes(texts, themes) {
+      return themes.map(t => {
+        const cnt = texts.reduce((acc, text) =>
+          acc + t.words.filter(w => text.includes(w)).length, 0);
+        return { ...t, score: cnt };
+      }).filter(t => t.score > 0).sort((a, b) => b.score - a.score);
+    }
+
+    function topSentences(texts, keywords, n = 3) {
+      const sentences = texts.flatMap(t =>
+        t.split(/[.。！!？?]\s*/).filter(s => s.trim().length > 10)
+      );
+      return sentences
+        .map(s => ({ s, score: keywords.filter(w => s.includes(w)).length }))
+        .filter(x => x.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, n)
+        .map(x => x.s.trim());
+    }
+
+    function buildOpenSummaryHTML(open01, open02, total) {
+      const n01 = open01.length, n02 = open02.length;
+
+      function themeHTML(themes, texts, allWords) {
+        const top = themes.slice(0, 4);
+        const sentences = topSentences(texts, allWords, 2);
+        const tags = top.map(t =>
+          `<span class="sum-tag">${t.label}</span>`
+        ).join('');
+        const quotes = sentences.map(s =>
+          `<div class="sum-quote">"${s.length > 60 ? s.slice(0, 60) + '…' : s}"</div>`
+        ).join('');
+        return `<div class="sum-tags">${tags}</div>${quotes}`;
+      }
+
+      const matched01 = matchThemes(open01, THEMES_Q1);
+      const matched02 = matchThemes(open02, THEMES_Q2);
+      const allW01 = THEMES_Q1.flatMap(t => t.words);
+      const allW02 = THEMES_Q2.flatMap(t => t.words);
+
+      const para01 = buildParagraph01(matched01, n01, total);
+      const para02 = buildParagraph02(matched02, n02, total);
+
+      return `
+    <h2 class="section-title">주관식 응답 AI 요약</h2>
+    <div class="sum-meta">
+      총 <strong>${total}명</strong> 응답자 중
+      Q1 <strong>${n01}명</strong> · Q2 <strong>${n02}명</strong>이 주관식 응답을 완료했습니다.
+    </div>
+
+    ${n01 ? `
+    <div class="sum-block">
+      <div class="sum-q-label">Q1 — AI 도입 불편·한계 사례</div>
+      <div class="sum-paragraph">${para01}</div>
+      ${themeHTML(matched01, open01, allW01)}
+    </div>` : ''}
+
+    ${n01 && n02 ? `<div class="sum-divider"></div>` : ''}
+
+    ${n02 ? `
+    <div class="sum-block">
+      <div class="sum-q-label">Q2 — 제도·문화 장벽</div>
+      <div class="sum-paragraph">${para02}</div>
+      ${themeHTML(matched02, open02, allW02)}
+    </div>` : ''}
+  `;
+    }
+
+    function buildParagraph01(themes, n, total) {
+      const pct = Math.round(n / total * 100);
+      const top3 = themes.slice(0, 3).map(t => t.label);
+      const hasData = themes.some(t => t.label.includes('데이터'));
+      const hasSec = themes.some(t => t.label.includes('보안'));
+      const hasCost = themes.some(t => t.label.includes('비용'));
+      const hasSkill = themes.some(t => t.label.includes('역량'));
+
+      let body = `응답자 ${n}명(전체의 ${pct}%)이 AI 도입 과정에서 겪은 불편과 한계를 공유했습니다. `;
+      if (top3.length) body += `가장 빈번하게 언급된 장벽은 <strong>${top3.join('</strong>, <strong>')}</strong>으로 나타났습니다. `;
+      if (hasData) body += '특히 학습용 데이터의 품질 및 접근성 문제, 기존 시스템과의 통합 어려움이 실질적인 도입을 가로막는 핵심 요인으로 반복 언급되었습니다. ';
+      if (hasSec) body += '내부 정보보안 정책이나 개인정보보호법 준수 문제로 외부 AI 서비스 활용 자체가 제한된 사례도 다수 확인되었습니다. ';
+      if (hasCost) body += 'AI 도구 라이선스 비용 및 성과 측정 기준 부재로 경영진 승인을 받지 못한 경우도 공통적으로 보고되었습니다. ';
+      if (hasSkill) body += '구성원의 AI 기초 역량 격차가 도입 속도를 저해하는 요인으로도 작용하고 있습니다.';
+      return body;
+    }
+
+    function buildParagraph02(themes, n, total) {
+      const pct = Math.round(n / total * 100);
+      const top3 = themes.slice(0, 3).map(t => t.label);
+      const hasFear = themes.some(t => t.label.includes('저항'));
+      const hasKpi = themes.some(t => t.label.includes('KPI'));
+      const hasLead = themes.some(t => t.label.includes('리더'));
+      const hasSilo = themes.some(t => t.label.includes('사일로'));
+
+      let body = `응답자 ${n}명(전체의 ${pct}%)이 AI·AX 전면 도입 시 우려되는 제도·문화적 장벽을 기술했습니다. `;
+      if (top3.length) body += `주요 장벽으로는 <strong>${top3.join('</strong>, <strong>')}</strong>이 꼽혔습니다. `;
+      if (hasFear) body += 'AI로 인한 일자리 대체 불안과 무의식적 변화 저항이 도입 초기 가장 큰 문화적 장벽으로 나타났습니다. ';
+      if (hasKpi) body += 'AI 성과를 측정할 KPI 및 평가 체계 부재가 경영진의 지속적 투자 의사결정을 어렵게 만드는 구조적 문제로 지적되었습니다. ';
+      if (hasLead) body += '중간 관리자층의 AI 이해도 부족과 리더십 역할 미흡이 현장 확산의 병목으로 작용하고 있습니다. ';
+      if (hasSilo) body += '부서 간 데이터 공유를 가로막는 사일로 문화 역시 AI 모델 품질과 전사 협업을 저해하는 요인으로 공통 언급되었습니다.';
+      return body;
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       MULTI-RESPONDENT HELPERS
+       ────────────────────────────────────────────────────────── */
+    function computeAggregateAnswers(results) {
+      const qMap = {};
+      results.forEach(res => {
+        Object.keys(res.answers).forEach(qId => {
+          if (!qMap[qId]) qMap[qId] = [];
+          qMap[qId].push(res.answers[qId]);
+        });
+      });
+      const agg = {};
+      Object.keys(qMap).forEach(qId => {
+        agg[qId] = qMap[qId].reduce((a, b) => a + b, 0) / qMap[qId].length;
+      });
+      return agg;
+    }
+
+    function switchView(view) {
+      ['overall', 'org', 'team', 'individual'].forEach(v => {
+        const el = document.getElementById('view-' + v);
+        if (el) el.style.display = v === view ? '' : 'none';
+        const btn = document.getElementById('vt-' + v);
+        if (btn) btn.classList.toggle('active', v === view);
+      });
+      window.scrollTo(0, 0);
+    }
+
+    function renderIndividualCards(container, results) {
+      const sorted = [...results].sort((a, b) => {
+        const ra = compute(a.answers), rb = compute(b.answers);
+        return rb.overall - ra.overall;
+      });
+      container.className = 'sections-wrap';
+      container.innerHTML = sorted.map((res, idx) => {
+        const r = compute(res.answers);
+        const info = LEVEL_INFO[r.orgLevel];
+        const date = res.timestamp ? new Date(res.timestamp).toLocaleDateString('ko-KR') : '-';
+        const name = res.name || `응답자 ${idx + 1}`;
+        const catBars = ['STR', 'PPL', 'GOV', 'ENG', 'DAT'].map(cat => {
+          const sc = r.catScores[cat];
+          const lvInfo = LEVEL_INFO[r.catLevels[cat]];
+          return `<div class="icard-cat">
+        <div class="icard-cat-label">${CAT_LABELS[cat]}</div>
+        <div class="icard-cat-score" style="color:${lvInfo.text}">${sc.toFixed(1)}</div>
+        <div class="cat-bar-wrap"><div class="cat-bar" style="width:${(sc / 5) * 100}%;background:${lvInfo.color}"></div></div>
+      </div>`;
+        }).join('');
+        const teamColor = TEAM_COLORS[res.team] || null;
+        const teamBadge = res.team
+          ? `<span class="icard-team-badge" style="${teamColor ? `background:${teamColor.bg};color:${teamColor.solid};border-color:${teamColor.solid}` : ''}">${res.team}</span>`
+          : '';
+        const jobBadge = res.jobType
+          ? `<span class="tcard-job-badge ${res.jobType}">${res.jobType === 'dev' ? '개발' : '비개발'}</span>`
+          : '';
+        return `<div class="r-section icard">
+      <div class="icard-header">
+        <div class="icard-rank">${idx + 1}</div>
+        <div class="icard-info">
+          <div class="icard-name">${name}</div>
+          <div class="icard-sub-meta">${teamBadge}${jobBadge}<span class="icard-date">${date}</span></div>
+        </div>
+        <div class="icard-lv-badge" style="background:${info.bg};color:${info.text};border:1.5px solid ${info.color};">Lv${r.orgLevel} ${info.name}</div>
+        <div class="icard-overall">${fmt(r.overall)}<span>/5.00</span></div>
+      </div>
+      <div class="icard-cats">${catBars}</div>
+    </div>`;
+      }).join('');
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       ORG VIEW  (개발 vs 비개발)
+       ────────────────────────────────────────────────────────── */
+    const ORG_DEF = [
+      { key: 'dev', label: '개발', teams: ['프론트엔드', '백엔드'], color: '#7c3aed', bg: 'rgba(124,58,237,0.10)' },
+      { key: 'nondev', label: '비개발', teams: ['재무회계', '인사'], color: '#059669', bg: 'rgba(5,150,105,0.10)' },
+    ];
+
+    function groupByJobType(results) {
+      const map = { dev: [], nondev: [] };
+      results.forEach(res => {
+        const k = res.jobType === 'dev' ? 'dev' : 'nondev';
+        map[k].push(res);
+      });
+      return map;
+    }
+
+    function renderOrgView(container, results) {
+      const groups = groupByJobType(results);
+      container.className = 'sections-wrap';
+
+      // Comparison radar
+      const radarSec = document.createElement('div');
+      radarSec.className = 'r-section';
+      radarSec.innerHTML = `
+    <h2 class="section-title">조직 유형별 역량 비교 레이더</h2>
+    <div class="team-compare-chart-wrap">
+      <canvas id="orgRadarChart"></canvas>
+    </div>
+  `;
+      container.appendChild(radarSec);
+
+      // Org cards
+      const cardsSec = document.createElement('div');
+      cardsSec.className = 'r-section';
+      cardsSec.innerHTML = `<h2 class="section-title">조직 유형별 상세 결과</h2>`;
+      const grid = document.createElement('div');
+      grid.className = 'team-grid';
+
+      const orgDataMap = {};
+      ORG_DEF.forEach(org => {
+        const members = groups[org.key] || [];
+        if (!members.length) return;
+        const aggAnswers = computeAggregateAnswers(members);
+        const r = compute(aggAnswers);
+        orgDataMap[org.key] = { r, org, members };
+
+        // Team member breakdown
+        const teamMap = {};
+        members.forEach(m => {
+          const t = m.team || '기타';
+          teamMap[t] = (teamMap[t] || 0) + 1;
+        });
+        const teamChips = Object.entries(teamMap).map(([t, cnt]) => {
+          const tc = TEAM_COLORS[t] || { solid: '#64748b', bg: '#f1f5f9' };
+          return `<span class="org-team-chip" style="background:${tc.bg};color:${tc.solid};border-color:${tc.solid}">${t} ${cnt}명</span>`;
+        }).join('');
+
+        const catRows = ['STR', 'PPL', 'GOV', 'ENG', 'DAT'].map(cat => {
+          const sc = r.catScores[cat];
+          const lvInfo = LEVEL_INFO[r.catLevels[cat]];
+          return `<div class="tcard-cat-row">
+        <div class="tcard-cat-label">${CAT_LABELS[cat]}</div>
+        <div class="tcard-cat-score" style="color:${lvInfo.text}">${sc.toFixed(2)}</div>
+        <div class="cat-bar-wrap" style="margin-bottom:0">
+          <div class="cat-bar" style="width:${(sc / 5) * 100}%;background:${org.color}"></div>
+        </div>
+      </div>`;
+        }).join('');
+
+        const card = document.createElement('div');
+        card.className = 'tcard';
+        card.style.borderTopColor = org.color;
+        card.innerHTML = `
+      <div class="tcard-header">
+        <div>
+          <div class="tcard-name" style="color:${org.color}">${org.label} 직군</div>
+          <div class="tcard-meta">
+            <span class="tcard-job-badge ${org.key}">${org.label}</span>
+            <span class="tcard-count">${members.length}명</span>
+          </div>
+          <div class="org-team-chips">${teamChips}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="tcard-scores">
+            <span class="tcard-overall" style="color:${org.color}">${fmt(r.overall)}</span>
+            <span class="tcard-overall-max">/ 5.00</span>
+          </div>
+          ${lvBadge(r.orgLevel)}
+        </div>
+      </div>
+      <div class="tcard-cats">${catRows}</div>
+        `;
+        grid.appendChild(card);
+      });
+
+      cardsSec.appendChild(grid);
+      container.appendChild(cardsSec);
+
+      // 조직별 전체 분석 코멘트
+      const orgAnalysisSec = document.createElement('div');
+      orgAnalysisSec.className = 'r-section';
+      orgAnalysisSec.innerHTML = buildOrgAnalysis(orgDataMap);
+      container.appendChild(orgAnalysisSec);
+
+      requestAnimationFrame(() => { drawOrgRadar(orgDataMap); });
+    }
+
+    function drawOrgRadar(orgDataMap) {
+      const ctx = document.getElementById('orgRadarChart');
+      if (!ctx) return;
+      const labels = ['AX 전략', 'AX 인력·문화', 'AX 거버넌스', 'AX 엔지니어링', 'AX 데이터'];
+      const datasets = ORG_DEF
+        .filter(org => orgDataMap[org.key])
+        .map(org => {
+          const { r } = orgDataMap[org.key];
+          return {
+            label: org.label + ' 직군',
+            data: ['STR', 'PPL', 'GOV', 'ENG', 'DAT'].map(c => r.catScores[c]),
+            backgroundColor: org.bg,
+            borderColor: org.color,
+            borderWidth: 2.5,
+            pointBackgroundColor: org.color,
+            pointRadius: 5,
+          };
+        });
+
+      new Chart(ctx.getContext('2d'), {
+        type: 'radar',
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          scales: {
+            r: {
+              min: 0, max: 5,
+              ticks: { stepSize: 1, font: { size: 10 } },
+              pointLabels: { font: { size: 13, weight: '600' } },
+              grid: { color: '#e2e8f0' },
+              angleLines: { color: '#cbd5e1' }
+            }
+          },
+          plugins: {
+            legend: { position: 'bottom', labels: { font: { size: 13, weight: '700' }, padding: 20 } },
+            tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.r.toFixed(2)}` } }
+          }
+        }
+      });
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       GROUP INSIGHT HELPER
+       ────────────────────────────────────────────────────────── */
+    function buildGroupInsight(r, label) {
+      const cats = ['STR','PPL','GOV','ENG','DAT'];
+      const strongest = cats.reduce((a, b) => r.catScores[a] > r.catScores[b] ? a : b);
+      const weakest   = cats.reduce((a, b) => r.catScores[a] < r.catScores[b] ? a : b);
+      const gap = r.catScores[strongest] - r.catScores[weakest];
+      const gapMsg = gap >= 1.5
+        ? `<span class="gi-warn">영역 간 격차(${gap.toFixed(1)})가 커 균형 잡힌 역량 개발이 필요합니다.</span>`
+        : gap >= 1.0
+          ? `영역 간 격차(${gap.toFixed(1)})가 있어 취약 영역 집중 보강을 권장합니다.`
+          : `영역 간 격차(${gap.toFixed(1)})가 균형 수준입니다.`;
+      return `
+        <div class="group-insight">
+          <div class="gi-row">
+            <span class="gi-label gi-strong">강점</span>
+            <span class="gi-cat" style="color:${LEVEL_INFO[r.catLevels[strongest]].text}">${CAT_LABELS[strongest]} ${fmt(r.catScores[strongest])}</span>
+          </div>
+          <div class="gi-row">
+            <span class="gi-label gi-weak">개선 필요</span>
+            <span class="gi-cat" style="color:${LEVEL_INFO[r.catLevels[weakest]].text}">${CAT_LABELS[weakest]} ${fmt(r.catScores[weakest])}</span>
+          </div>
+          <div class="gi-gap">${gapMsg}</div>
+          <div class="gi-advice">${CAT_LEVEL_MSGS[weakest][r.catLevels[weakest]]}</div>
+        </div>
+      `;
+    }
+
+    function buildOrgAnalysis(orgDataMap) {
+      const cats = ['STR','PPL','GOV','ENG','DAT'];
+      const entries = Object.values(orgDataMap); // [{r, org, members}, ...]
+      if (entries.length < 2) return '';
+
+      const devEntry    = orgDataMap['dev'];
+      const nondevEntry = orgDataMap['nondev'];
+      if (!devEntry || !nondevEntry) return '';
+
+      const devR    = devEntry.r;
+      const nondevR = nondevEntry.r;
+
+      // 직군 간 격차가 가장 큰 영역
+      const gaps = cats.map(c => ({ cat: c, gap: Math.abs(devR.catScores[c] - nondevR.catScores[c]) }))
+                       .sort((a, b) => b.gap - a.gap);
+      const topGap = gaps[0];
+      const devHigher = cats.filter(c => devR.catScores[c] > nondevR.catScores[c] + 0.3);
+      const nondevHigher = cats.filter(c => nondevR.catScores[c] > devR.catScores[c] + 0.3);
+
+      const devOverall = fmt(devR.overall), nondevOverall = fmt(nondevR.overall);
+      const higherOrg = devR.overall >= nondevR.overall ? '개발 직군' : '비개발 직군';
+      const lowerOrg  = devR.overall >= nondevR.overall ? '비개발 직군' : '개발 직군';
+
+      let body = `개발 직군(${devOverall})과 비개발 직군(${nondevOverall})의 전반적 AX 역량을 비교한 결과, <strong>${higherOrg}</strong>이 종합 성숙도에서 앞서 있습니다. `;
+
+      if (topGap.gap >= 0.5) {
+        body += `두 직군 간 격차가 가장 두드러진 영역은 <strong>${CAT_LABELS[topGap.cat]}</strong>(차이 ${topGap.gap.toFixed(2)})으로, 역할 특성에 따른 역량 차이가 반영된 결과입니다. `;
+      }
+      if (devHigher.length) {
+        body += `개발 직군은 <strong>${devHigher.map(c => CAT_LABELS[c]).join('·')}</strong> 영역에서 우위를 보이며, `;
+      }
+      if (nondevHigher.length) {
+        body += `비개발 직군은 <strong>${nondevHigher.map(c => CAT_LABELS[c]).join('·')}</strong> 영역에서 상대적으로 강세를 나타냅니다. `;
+      }
+
+      // 공통 취약 영역
+      const commonWeak = cats.filter(c =>
+        devR.catLevels[c] <= 2 && nondevR.catLevels[c] <= 2
+      );
+      if (commonWeak.length) {
+        body += `<strong>${commonWeak.map(c => CAT_LABELS[c]).join('·')}</strong> 영역은 두 직군 모두 낮은 수준으로, 전사 차원의 집중 개선이 필요합니다.`;
+      } else {
+        const devWeak    = cats.reduce((a, b) => devR.catScores[a]    < devR.catScores[b]    ? a : b);
+        const nondevWeak = cats.reduce((a, b) => nondevR.catScores[a] < nondevR.catScores[b] ? a : b);
+        body += `개발 직군은 <strong>${CAT_LABELS[devWeak]}</strong>, 비개발 직군은 <strong>${CAT_LABELS[nondevWeak]}</strong>을 우선 보강할 것을 권장합니다.`;
+      }
+
+      return `
+        <h2 class="section-title">조직별 종합 분석</h2>
+        <div class="analysis-box">
+          <p class="analysis-text">${body}</p>
+        </div>
+      `;
+    }
+
+    function buildTeamAnalysis(teams) {
+      const cats = ['STR','PPL','GOV','ENG','DAT'];
+      const teamEntries = TEAM_ORDER
+        .filter(t => teams[t] && teams[t].length)
+        .map(t => ({ name: t, r: compute(computeAggregateAnswers(teams[t])), count: teams[t].length, jobType: teams[t][0].jobType }));
+
+      if (teamEntries.length < 2) return '';
+
+      // 팀별 전체 순위
+      const sorted = [...teamEntries].sort((a, b) => b.r.overall - a.r.overall);
+      const top    = sorted[0];
+      const bottom = sorted[sorted.length - 1];
+
+      // 전 팀 공통 취약
+      const commonWeak = cats.filter(c => teamEntries.every(e => e.r.catLevels[c] <= 2));
+      // 전 팀 공통 강점
+      const commonStrong = cats.filter(c => teamEntries.every(e => e.r.catLevels[c] >= 4));
+
+      // 팀 간 격차가 가장 큰 영역
+      const teamGaps = cats.map(c => {
+        const scores = teamEntries.map(e => e.r.catScores[c]);
+        return { cat: c, gap: Math.max(...scores) - Math.min(...scores) };
+      }).sort((a, b) => b.gap - a.gap);
+
+      let body = `${teamEntries.length}개 팀(총 ${teamEntries.reduce((s,e) => s+e.count, 0)}명)의 AX 역량을 분석한 결과, `;
+      body += `<strong>${top.name}</strong>(${fmt(top.r.overall)})이 가장 높은 종합 성숙도를 보이며, <strong>${bottom.name}</strong>(${fmt(bottom.r.overall)})이 상대적으로 낮은 수준입니다. `;
+
+      if (teamGaps[0].gap >= 0.5) {
+        body += `팀 간 격차가 가장 큰 영역은 <strong>${CAT_LABELS[teamGaps[0].cat]}</strong>(최대 차이 ${teamGaps[0].gap.toFixed(2)})으로, 팀별 역할 특성과 AI 성숙도 편차가 집중됩니다. `;
+      }
+      if (commonStrong.length) {
+        body += `<strong>${commonStrong.map(c => CAT_LABELS[c]).join('·')}</strong>은 모든 팀에서 높은 수준을 유지하는 공통 강점 영역입니다. `;
+      }
+      if (commonWeak.length) {
+        body += `반면 <strong>${commonWeak.map(c => CAT_LABELS[c]).join('·')}</strong>은 전 팀에서 공통적으로 낮아 조직 차원의 우선 투자가 필요합니다.`;
+      } else {
+        // 각 팀 취약 영역
+        const weakSummary = teamEntries.map(e => {
+          const w = cats.reduce((a, b) => e.r.catScores[a] < e.r.catScores[b] ? a : b);
+          return `${e.name}팀은 ${CAT_LABELS[w]}`;
+        }).join(', ');
+        body += `팀별 취약 영역은 상이하여 — ${weakSummary} — 팀 특성에 맞춘 맞춤형 개선 전략이 필요합니다.`;
+      }
+
+      return `
+        <h2 class="section-title">팀별 종합 분석</h2>
+        <div class="analysis-box">
+          <p class="analysis-text">${body}</p>
+        </div>
+      `;
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       TEAM VIEW
+       ────────────────────────────────────────────────────────── */
+    const TEAM_COLORS = {
+      '재무회계': { border: '#3b82f6', bg: 'rgba(59,130,246,0.12)', solid: '#3b82f6' },
+      '인사': { border: '#10b981', bg: 'rgba(16,185,129,0.12)', solid: '#10b981' },
+      '프론트엔드': { border: '#8b5cf6', bg: 'rgba(139,92,246,0.12)', solid: '#8b5cf6' },
+      '백엔드': { border: '#f97316', bg: 'rgba(249,115,22,0.12)', solid: '#f97316' },
+    };
+    const TEAM_ORDER = ['재무회계', '인사', '프론트엔드', '백엔드'];
+
+    function groupByTeam(results) {
+      const map = {};
+      results.forEach(res => {
+        const t = res.team || '기타';
+        if (!map[t]) map[t] = [];
+        map[t].push(res);
+      });
+      return map;
+    }
+
+    function renderTeamView(container, results) {
+      const teams = groupByTeam(results);
+      container.className = 'sections-wrap';
+
+      // Comparison radar
+      const compSec = document.createElement('div');
+      compSec.className = 'r-section';
+      compSec.innerHTML = `
+    <h2 class="section-title">팀별 역량 비교 레이더</h2>
+    <div class="team-compare-chart-wrap">
+      <canvas id="teamRadarChart"></canvas>
+    </div>
+  `;
+      container.appendChild(compSec);
+
+      // Team cards grid
+      const cardsSec = document.createElement('div');
+      cardsSec.className = 'r-section';
+      cardsSec.innerHTML = `<h2 class="section-title">팀별 상세 결과</h2>`;
+      const grid = document.createElement('div');
+      grid.className = 'team-grid';
+
+      const teamDataMap = {};
+      TEAM_ORDER.forEach(teamName => {
+        const teamResults = teams[teamName];
+        if (!teamResults) return;
+        const aggAnswers = computeAggregateAnswers(teamResults);
+        const r = compute(aggAnswers);
+        teamDataMap[teamName] = r;
+
+        const color = TEAM_COLORS[teamName] || { border: '#94a3b8', bg: '#f8fafc', solid: '#94a3b8' };
+        const isdev = teamResults[0] && teamResults[0].jobType === 'dev';
+
+        const card = document.createElement('div');
+        card.className = 'tcard';
+        card.style.borderTopColor = color.solid;
+
+        const catRows = ['STR', 'PPL', 'GOV', 'ENG', 'DAT'].map(cat => {
+          const sc = r.catScores[cat];
+          const lvInfo = LEVEL_INFO[r.catLevels[cat]];
+          return `<div class="tcard-cat-row">
+        <div class="tcard-cat-label">${CAT_LABELS[cat]}</div>
+        <div class="tcard-cat-score" style="color:${lvInfo.text}">${sc.toFixed(2)}</div>
+        <div class="cat-bar-wrap" style="margin-bottom:0">
+          <div class="cat-bar" style="width:${(sc / 5) * 100}%;background:${color.solid}"></div>
+        </div>
+      </div>`;
+        }).join('');
+
+        card.innerHTML = `
+      <div class="tcard-header">
+        <div>
+          <div class="tcard-name" style="color:${color.solid}">${teamName}</div>
+          <div class="tcard-meta">
+            <span class="tcard-job-badge ${isdev ? 'dev' : 'nondev'}">${isdev ? '개발' : '비개발'}</span>
+            <span class="tcard-count">${teamResults.length}명</span>
+          </div>
+        </div>
+        <div style="text-align:right">
+          <div class="tcard-scores">
+            <span class="tcard-overall" style="color:${color.solid}">${fmt(r.overall)}</span>
+            <span class="tcard-overall-max">/ 5.00</span>
+          </div>
+          ${lvBadge(r.orgLevel)}
+        </div>
+      </div>
+      <div class="tcard-cats">${catRows}</div>
+        `;
+        grid.appendChild(card);
+      });
+
+      cardsSec.appendChild(grid);
+      container.appendChild(cardsSec);
+
+      // 팀별 전체 분석 코멘트
+      const teamAnalysisSec = document.createElement('div');
+      teamAnalysisSec.className = 'r-section';
+      teamAnalysisSec.innerHTML = buildTeamAnalysis(teams);
+      container.appendChild(teamAnalysisSec);
+
+      requestAnimationFrame(() => { drawTeamRadar(teamDataMap); });
+    }
+
+    function drawTeamRadar(teamDataMap) {
+      const ctx = document.getElementById('teamRadarChart');
+      if (!ctx) return;
+      const labels = ['AX 전략', 'AX 인력·문화', 'AX 거버넌스', 'AX 엔지니어링', 'AX 데이터'];
+      const datasets = TEAM_ORDER
+        .filter(t => teamDataMap[t])
+        .map(t => {
+          const r = teamDataMap[t];
+          const color = TEAM_COLORS[t] || { solid: '#94a3b8', bg: 'rgba(148,163,184,0.12)' };
+          return {
+            label: t,
+            data: ['STR', 'PPL', 'GOV', 'ENG', 'DAT'].map(c => r.catScores[c]),
+            backgroundColor: color.bg,
+            borderColor: color.solid,
+            borderWidth: 2,
+            pointBackgroundColor: color.solid,
+            pointRadius: 4,
+          };
+        });
+
+      new Chart(ctx.getContext('2d'), {
+        type: 'radar',
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          scales: {
+            r: {
+              min: 0, max: 5,
+              ticks: { stepSize: 1, font: { size: 10 } },
+              pointLabels: { font: { size: 12, weight: '600' } },
+              grid: { color: '#e2e8f0' },
+              angleLines: { color: '#cbd5e1' }
+            }
+          },
+          plugins: {
+            legend: { position: 'bottom', labels: { font: { size: 12, weight: '600' }, padding: 16 } },
+            tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.r.toFixed(2)}` } }
+          }
+        }
+      });
+    }
+
+    /* ──────────────────────────────────────────────────────────
+       INIT
+       ────────────────────────────────────────────────────────── */
+    (function init() {
+      // ax_results 없으면 샘플 데이터 주입 (ax_result 단수는 무시)
+      if (!localStorage.getItem('ax_results')) {
+        if (typeof SAMPLE_RESULTS !== 'undefined') {
+          localStorage.setItem('ax_results', JSON.stringify(SAMPLE_RESULTS));
+        }
+      }
+
+      let results = JSON.parse(localStorage.getItem('ax_results') || 'null');
+      if (!results) {
+        const raw = localStorage.getItem('ax_result');
+        if (!raw) {
+          document.getElementById('app').innerHTML = `
+        <div class="error-wrap">
+          <p>저장된 진단 결과가 없습니다.</p>
+          <a href="index.html" class="btn btn-primary">진단 시작하기</a>
+        </div>
+      `;
+          return;
+        }
+        results = [JSON.parse(raw)];
+      }
+
+      if (results.length === 0) {
+        document.getElementById('app').innerHTML = `
+      <div class="error-wrap">
+        <p>저장된 진단 결과가 없습니다.</p>
+        <a href="index.html" class="btn btn-primary">진단 시작하기</a>
+      </div>
+    `;
+        return;
+      }
+
+      if (results.length === 1) {
+        const r0 = results[0];
+        render(r0.answers, r0.openAnswers || {}, { name: r0.name, team: r0.team, jobType: r0.jobType });
+        return;
+      }
+
+      // Multiple respondents: show aggregate + individual views
+      const aggAnswers = computeAggregateAnswers(results);
+      render(aggAnswers, {}, null);
+
+      const app = document.getElementById('app');
+      const sectionsWrap = app.querySelector('.sections-wrap');
+
+      // View toggle bar
+      const toggleDiv = document.createElement('div');
+      toggleDiv.className = 'view-toggle-wrap';
+      toggleDiv.innerHTML = `
+    <div class="view-toggle">
+      <button class="vt-btn active" id="vt-overall" onclick="switchView('overall')">전체 결과</button>
+      <button class="vt-btn" id="vt-org" onclick="switchView('org')">조직별 결과</button>
+      <button class="vt-btn" id="vt-team" onclick="switchView('team')">팀별 결과</button>
+      <button class="vt-btn" id="vt-individual" onclick="switchView('individual')">평가자 별 결과</button>
+    </div>
+  `;
+      app.insertBefore(toggleDiv, sectionsWrap);
+
+      // Wrap sections-wrap in overall view div
+      const overallView = document.createElement('div');
+      overallView.id = 'view-overall';
+      app.insertBefore(overallView, sectionsWrap);
+      overallView.appendChild(sectionsWrap);
+
+      // Word cloud inside overall view
+      renderWordClouds(sectionsWrap, results);
+
+      // Org view (개발 vs 비개발)
+      const orgView = document.createElement('div');
+      orgView.id = 'view-org';
+      orgView.style.display = 'none';
+      app.appendChild(orgView);
+      renderOrgView(orgView, results);
+
+      // Team view
+      const teamView = document.createElement('div');
+      teamView.id = 'view-team';
+      teamView.style.display = 'none';
+      app.appendChild(teamView);
+      renderTeamView(teamView, results);
+
+      // Individual view
+      const indivView = document.createElement('div');
+      indivView.id = 'view-individual';
+      indivView.style.display = 'none';
+      app.appendChild(indivView);
+      renderIndividualCards(indivView, results);
+    })();
+  </script>
+</body>
+
+</html>
