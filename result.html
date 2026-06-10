@@ -1216,6 +1216,25 @@
     }
 
     /* ──────────────────────────────────────────────────────────
+       JSONP FETCH (CORS 우회)
+       ────────────────────────────────────────────────────────── */
+    function jsonpFetch(url) {
+      return new Promise((resolve, reject) => {
+        const cbName = '__axCb' + Date.now();
+        const script = document.createElement('script');
+        const timer = setTimeout(() => { cleanup(); reject(new Error('JSONP timeout')); }, 10000);
+        function cleanup() {
+          delete window[cbName];
+          if (script.parentNode) script.parentNode.removeChild(script);
+        }
+        window[cbName] = (data) => { clearTimeout(timer); cleanup(); resolve(data); };
+        script.onerror = () => { clearTimeout(timer); cleanup(); reject(new Error('JSONP load error')); };
+        script.src = url + (url.includes('?') ? '&' : '?') + 'callback=' + cbName + '&t=' + Date.now();
+        document.head.appendChild(script);
+      });
+    }
+
+    /* ──────────────────────────────────────────────────────────
        INIT
        ────────────────────────────────────────────────────────── */
     (async function init() {
@@ -1232,8 +1251,7 @@
       // 1. Google Sheets에서 전체 응답 데이터 가져오기
       if (sheetsConfigured) {
         try {
-          const resp = await fetch(SHEETS_API_URL + '?t=' + Date.now(), { cache: 'no-store' });
-          const json = await resp.json();
+          const json = await jsonpFetch(SHEETS_API_URL);
           sheetsResults = (json.results || []).filter(r => r.answers && Object.keys(r.answers).length > 0);
         } catch (e) {
           console.warn('[Sheets 로드 실패]', e.message || e);
