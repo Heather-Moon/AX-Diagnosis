@@ -1019,7 +1019,7 @@
 
     function buildTeamAnalysis(teams) {
       const cats = ['STR','PPL','GOV','ENG','DAT'];
-      const teamEntries = TEAM_ORDER
+      const teamEntries = getOrderedTeams(teams)
         .filter(t => teams[t] && teams[t].length)
         .map(t => ({ name: t, r: compute(computeAggregateAnswers(teams[t])), count: teams[t].length, jobType: teams[t][0].jobType }));
 
@@ -1080,6 +1080,20 @@
     };
     const TEAM_ORDER = ['재무회계', '인사', '프론트엔드', '백엔드'];
 
+    function getTeamColor(teamName) {
+      if (TEAM_COLORS[teamName]) return TEAM_COLORS[teamName];
+      const hash = [...teamName].reduce((h, c) => Math.imul(31, h) + c.charCodeAt(0) | 0, 0);
+      const hue = Math.abs(hash) % 360;
+      const solid = `hsl(${hue},60%,45%)`;
+      return { border: solid, bg: `hsla(${hue},60%,45%,0.12)`, solid };
+    }
+
+    function getOrderedTeams(teamsMap) {
+      const known = TEAM_ORDER.filter(t => teamsMap[t]);
+      const extra = Object.keys(teamsMap).filter(t => !TEAM_ORDER.includes(t));
+      return [...known, ...extra];
+    }
+
     function groupByTeam(results) {
       const map = {};
       results.forEach(res => {
@@ -1113,14 +1127,14 @@
       grid.className = 'team-grid';
 
       const teamDataMap = {};
-      TEAM_ORDER.forEach(teamName => {
+      getOrderedTeams(teams).forEach(teamName => {
         const teamResults = teams[teamName];
         if (!teamResults) return;
         const aggAnswers = computeAggregateAnswers(teamResults);
         const r = compute(aggAnswers);
         teamDataMap[teamName] = r;
 
-        const color = TEAM_COLORS[teamName] || { border: '#94a3b8', bg: '#f8fafc', solid: '#94a3b8' };
+        const color = getTeamColor(teamName);
         const isdev = teamResults[0] && teamResults[0].jobType === 'dev';
 
         const card = document.createElement('div');
@@ -1177,11 +1191,10 @@
       const ctx = document.getElementById('teamRadarChart');
       if (!ctx) return;
       const labels = ['AX 전략', 'AX 인력·문화', 'AX 거버넌스', 'AX 엔지니어링', 'AX 데이터'];
-      const datasets = TEAM_ORDER
-        .filter(t => teamDataMap[t])
+      const datasets = Object.keys(teamDataMap)
         .map(t => {
           const r = teamDataMap[t];
-          const color = TEAM_COLORS[t] || { solid: '#94a3b8', bg: 'rgba(148,163,184,0.12)' };
+          const color = getTeamColor(t);
           return {
             label: t,
             data: ['STR', 'PPL', 'GOV', 'ENG', 'DAT'].map(c => r.catScores[c]),
