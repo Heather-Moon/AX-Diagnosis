@@ -1232,11 +1232,17 @@
       // 1. Google Sheets에서 전체 응답 데이터 가져오기
       if (sheetsConfigured) {
         try {
-          const resp = await fetch(SHEETS_API_URL);
+          const resp = await fetch(SHEETS_API_URL + '?t=' + Date.now(), { cache: 'no-store' });
           const json = await resp.json();
           sheetsResults = (json.results || []).filter(r => r.answers && Object.keys(r.answers).length > 0);
         } catch (e) {
-          console.warn('Sheets 로드 실패, 샘플 데이터로 대체:', e);
+          console.warn('[Sheets 로드 실패]', e.message || e);
+          document.getElementById('app').insertAdjacentHTML('afterbegin',
+            `<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:10px 16px;margin:12px auto;max-width:800px;font-size:13px;color:#92400e;">
+              ⚠️ Google Sheets 연결 실패 — 샘플 데이터로 표시 중<br>
+              <small>${e.message || e}</small>
+            </div>`
+          );
         }
       }
 
