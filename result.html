@@ -1271,15 +1271,8 @@
         if (!inSheets) sheetsResults = [currentResult, ...sheetsResults];
       }
 
-      // 3. Sheets 데이터가 1개 이하면 샘플 데이터로 보충 (집계 뷰 유지)
+      // 3. Sheets 데이터가 있으면 그대로 사용, 없으면 localStorage → 샘플 순 폴백
       let results = sheetsResults;
-      if (results.length <= 1 && typeof SAMPLE_RESULTS !== 'undefined') {
-        const existing = new Set(results.map(r => r.timestamp));
-        const supplement = SAMPLE_RESULTS.filter(s => !existing.has(s.timestamp));
-        results = [...results, ...supplement];
-      }
-
-      // 4. Sheets API 미설정 시 localStorage 또는 샘플 데이터 사용
       if (results.length === 0) {
         const local = JSON.parse(localStorage.getItem('ax_results') || 'null');
         results = (local && local.length > 0) ? local
