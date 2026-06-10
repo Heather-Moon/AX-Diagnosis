@@ -71,14 +71,46 @@ function doPost(e) {
   }
 }
 
-// ── GET: 전체 응답 데이터 반환 (JSONP 지원) ─────────────────────────
+// ── GET: 저장(action=save) + 조회 겸용 (JSONP 지원) ─────────────────
 function doGet(e) {
+  const cb = (e.parameter || {}).callback;
+
+  // ── SAVE ──────────────────────────────────────────────────────────
+  if ((e.parameter || {}).action === 'save') {
+    let out;
+    try {
+      const data = JSON.parse(decodeURIComponent(e.parameter.data || '{}'));
+      const ss = SpreadsheetApp.openById(SHEET_ID);
+      const sheet = ss.getActiveSheet();
+      if (sheet.getLastRow() === 0) {
+        sheet.appendRow(HEADERS);
+        sheet.setFrozenRows(1);
+      }
+      const ts = new Date(data.timestamp);
+      sheet.appendRow([
+        Utilities.formatDate(ts, 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss'),
+        data.name || '익명',
+        data.team || '',
+        data.jobType || '',
+        data.tenure || '',
+        ...QUESTION_IDS.map(id => (data.answers || {})[id] ?? ''),
+        ...OPEN_IDS.map(id => (data.openAnswers || {})[id] ?? '')
+      ]);
+      out = JSON.stringify({ success: true });
+    } catch (err) {
+      out = JSON.stringify({ success: false, error: err.toString() });
+    }
+    return ContentService
+      .createTextOutput(cb ? cb + '(' + out + ')' : out)
+      .setMimeType(cb ? ContentService.MimeType.JAVASCRIPT : ContentService.MimeType.JSON);
+  }
+
+  // ── READ ──────────────────────────────────────────────────────────
   let out;
   try {
     const ss = SpreadsheetApp.openById(SHEET_ID);
     const sheet = ss.getActiveSheet();
     const rows = sheet.getDataRange().getValues();
-
     if (rows.length <= 1) {
       out = JSON.stringify({ results: [] });
     } else {
@@ -109,14 +141,7 @@ function doGet(e) {
   } catch (err) {
     out = JSON.stringify({ results: [], error: err.toString() });
   }
-
-  const cb = e.parameter && e.parameter.callback;
-  if (cb) {
-    return ContentService
-      .createTextOutput(cb + '(' + out + ')')
-      .setMimeType(ContentService.MimeType.JAVASCRIPT);
-  }
   return ContentService
-    .createTextOutput(out)
-    .setMimeType(ContentService.MimeType.JSON);
+    .createTextOutput(cb ? cb + '(' + out + ')' : out)
+    .setMimeType(cb ? ContentService.MimeType.JAVASCRIPT : ContentService.MimeType.JSON);
 }

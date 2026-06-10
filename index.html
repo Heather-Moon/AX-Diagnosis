@@ -486,7 +486,10 @@
       window.scrollTo(0, 0);
     }
 
-    function submitAndRedirect() {
+    async function submitAndRedirect() {
+      const btn = document.querySelector('.btn-success');
+      if (btn) { btn.disabled = true; btn.textContent = '저장 중...'; }
+
       const payload = {
         name: state.respondentName || '익명',
         team: state.team,
@@ -503,30 +506,22 @@
       localStorage.setItem('ax_result', JSON.stringify(payload));
 
       if (SHEETS_API_URL !== 'YOUR_APPS_SCRIPT_WEB_APP_URL') {
-        const iframe = document.createElement('iframe');
-        iframe.name = '_sheets_target';
-        iframe.style.cssText = 'display:none;width:0;height:0;border:0';
-        document.body.appendChild(iframe);
-
-        const form = document.createElement('form');
-        form.method = 'POST';
-        form.action = SHEETS_API_URL;
-        form.target = '_sheets_target';
-        form.style.display = 'none';
-
-        const input = document.createElement('input');
-        input.type = 'hidden';
-        input.name = 'payload';
-        input.value = JSON.stringify(payload);
-        form.appendChild(input);
-
-        document.body.appendChild(form);
-        form.submit();
-
-        setTimeout(() => {
-          if (document.body.contains(form))   document.body.removeChild(form);
-          if (document.body.contains(iframe)) document.body.removeChild(iframe);
-        }, 10000);
+        await new Promise((resolve) => {
+          const cbName = '__axSave' + Date.now();
+          const script = document.createElement('script');
+          const timer = setTimeout(() => { cleanup(); resolve(); }, 8000);
+          function cleanup() {
+            delete window[cbName];
+            if (script.parentNode) script.parentNode.removeChild(script);
+          }
+          window[cbName] = () => { clearTimeout(timer); cleanup(); resolve(); };
+          script.onerror = () => { clearTimeout(timer); cleanup(); resolve(); };
+          script.src = SHEETS_API_URL
+            + '?action=save&callback=' + cbName
+            + '&data=' + encodeURIComponent(JSON.stringify(payload))
+            + '&t=' + Date.now();
+          document.head.appendChild(script);
+        });
       }
 
       window.location.href = 'result.html';
